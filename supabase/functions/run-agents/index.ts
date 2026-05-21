@@ -393,7 +393,7 @@ let postsCreated = 0;
           await log("design", `Created ${platform} post v${v + 1} — best time: ${meta.bestTime}`, "success");
         }
       }
-    }
+    }));
 
     await admin.from("events").update({
       status: "ready", post_count: postsCreated, top_pick_count: topIds.length, asset_count: assets.length,
