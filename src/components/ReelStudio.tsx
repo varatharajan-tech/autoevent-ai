@@ -106,8 +106,9 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
       setReelDur(durationSec);
       toast.success(`Reel ready — ${durationSec.toFixed(0)}s`);
     } catch (e) {
-      console.error(e);
-      toast.error(`Reel failed: ${(e as Error).message}`);
+      console.error("[ReelStudio] generate failed", e);
+      const msg = e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
+      toast.error(`Reel failed: ${msg || "unknown error"}`);
     } finally {
       setBusy(false);
     }
