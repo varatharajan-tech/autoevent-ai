@@ -26,21 +26,40 @@ export type ReelInput = {
 
 export type ReelProgress = (msg: string, pct: number) => void;
 
-const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+const CORE_VERSION = "0.12.6";
+const CORE_BASES = [
+  `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${CORE_VERSION}/dist/umd`,
+  `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/umd`,
+];
 const FONT_URL = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/inter/Inter%5Bslnt%2Cwght%5D.ttf";
 
 let ffmpegSingleton: FFmpeg | null = null;
+
+async function loadFromBase(ff: FFmpeg, base: string) {
+  const [coreURL, wasmURL] = await Promise.all([
+    toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+    toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+  ]);
+  await ff.load({ coreURL, wasmURL });
+}
 
 async function getFFmpeg(onLog?: (l: string) => void): Promise<FFmpeg> {
   if (ffmpegSingleton) return ffmpegSingleton;
   const ff = new FFmpeg();
   if (onLog) ff.on("log", ({ message }) => onLog(message));
-  await ff.load({
-    coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
-  });
-  ffmpegSingleton = ff;
-  return ff;
+  let lastErr: unknown = null;
+  for (const base of CORE_BASES) {
+    try {
+      await loadFromBase(ff, base);
+      ffmpegSingleton = ff;
+      return ff;
+    } catch (e) {
+      lastErr = e;
+      console.warn("[reelEngine] ffmpeg load failed from", base, e);
+    }
+  }
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? "unknown");
+  throw new Error(`Could not load video engine (ffmpeg.wasm). ${msg}. Check your network/adblocker and retry.`);
 }
 
 // Pre-render image to 1080x1920 cover-fit JPEG via canvas — guarantees correct size and decodable input.
