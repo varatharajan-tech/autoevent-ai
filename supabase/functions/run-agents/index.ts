@@ -44,9 +44,13 @@ function isRetryable(err: unknown): boolean {
   const e = err as { name?: string; status?: number; message?: string };
   if (!e) return false;
   if (e.name === "AbortError") return true; // timeout
-  if (e.status && (e.status === 408 || e.status === 425 || e.status === 429 || e.status >= 500)) return true;
+  // NOTE: 429 is intentionally NOT retried — under free-tier rate caps the limit
+  // persists for many seconds and stacking retries blows the 150s edge timeout.
+  // We fall back to a templated caption instead.
+  if (e.status && (e.status === 408 || e.status === 425 || e.status >= 500)) return true;
   const m = (e.message ?? "").toLowerCase();
-  return /timeout|timed out|resource|exhaust|limit|overload|temporarily|unavailable|econnreset|network/.test(m);
+  if (/rate.?limit|429/.test(m)) return false;
+  return /timeout|timed out|resource|exhaust|overload|temporarily|unavailable|econnreset|network/.test(m);
 }
 
 type LogFn = (agent: string, message: string, level?: string) => Promise<void>;
@@ -314,8 +318,8 @@ Deno.serve(async (req) => {
       });
     };
 
-    let postsCreated = 0;
-    for (const platform of requested) {
+let postsCreated = 0;
+    await Promise.all(requested.map(async (platform) => {
       const meta = PLATFORM_META[platform];
       const variants = Math.min(VARIATIONS_PER_PLATFORM, Math.max(usePicks.length, 1) === 1 ? 3 : VARIATIONS_PER_PLATFORM);
       const priorCaptions: string[] = [];
@@ -389,7 +393,7 @@ Deno.serve(async (req) => {
           await log("design", `Created ${platform} post v${v + 1} — best time: ${meta.bestTime}`, "success");
         }
       }
-    }
+    }));
 
     await admin.from("events").update({
       status: "ready", post_count: postsCreated, top_pick_count: topIds.length, asset_count: assets.length,
