@@ -14,7 +14,250 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_logs: {
+        Row: {
+          agent: string
+          created_at: string
+          event_id: string
+          id: string
+          level: string
+          message: string
+          user_id: string
+        }
+        Insert: {
+          agent: string
+          created_at?: string
+          event_id: string
+          id?: string
+          level?: string
+          message: string
+          user_id: string
+        }
+        Update: {
+          agent?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          level?: string
+          message?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_logs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assets: {
+        Row: {
+          ai_summary: string | null
+          analyzed: boolean
+          created_at: string
+          emotion: string | null
+          event_id: string
+          filename: string | null
+          has_faces: boolean | null
+          height: number | null
+          id: string
+          is_top_pick: boolean
+          kind: string
+          public_url: string | null
+          quality_score: number | null
+          scene: string | null
+          storage_path: string
+          user_id: string
+          width: number | null
+        }
+        Insert: {
+          ai_summary?: string | null
+          analyzed?: boolean
+          created_at?: string
+          emotion?: string | null
+          event_id: string
+          filename?: string | null
+          has_faces?: boolean | null
+          height?: number | null
+          id?: string
+          is_top_pick?: boolean
+          kind?: string
+          public_url?: string | null
+          quality_score?: number | null
+          scene?: string | null
+          storage_path: string
+          user_id: string
+          width?: number | null
+        }
+        Update: {
+          ai_summary?: string | null
+          analyzed?: boolean
+          created_at?: string
+          emotion?: string | null
+          event_id?: string
+          filename?: string | null
+          has_faces?: boolean | null
+          height?: number | null
+          id?: string
+          is_top_pick?: boolean
+          kind?: string
+          public_url?: string | null
+          quality_score?: number | null
+          scene?: string | null
+          storage_path?: string
+          user_id?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      events: {
+        Row: {
+          asset_count: number
+          audience: string | null
+          brand_color: string | null
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          post_count: number
+          status: string
+          top_pick_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_count?: number
+          audience?: string | null
+          brand_color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          post_count?: number
+          status?: string
+          top_pick_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_count?: number
+          audience?: string | null
+          brand_color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          post_count?: number
+          status?: string
+          top_pick_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      generated_posts: {
+        Row: {
+          audience: string | null
+          best_time: string | null
+          caption: string | null
+          created_at: string
+          engagement_score: number | null
+          event_id: string
+          format: string
+          hashtags: string[] | null
+          id: string
+          image_url: string | null
+          metrics: Json
+          platform: string
+          predicted_engagement: number | null
+          source_asset_id: string | null
+          storage_path: string | null
+          user_id: string
+        }
+        Insert: {
+          audience?: string | null
+          best_time?: string | null
+          caption?: string | null
+          created_at?: string
+          engagement_score?: number | null
+          event_id: string
+          format: string
+          hashtags?: string[] | null
+          id?: string
+          image_url?: string | null
+          metrics?: Json
+          platform: string
+          predicted_engagement?: number | null
+          source_asset_id?: string | null
+          storage_path?: string | null
+          user_id: string
+        }
+        Update: {
+          audience?: string | null
+          best_time?: string | null
+          caption?: string | null
+          created_at?: string
+          engagement_score?: number | null
+          event_id?: string
+          format?: string
+          hashtags?: string[] | null
+          id?: string
+          image_url?: string | null
+          metrics?: Json
+          platform?: string
+          predicted_engagement?: number | null
+          source_asset_id?: string | null
+          storage_path?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_posts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_posts_source_asset_id_fkey"
+            columns: ["source_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
