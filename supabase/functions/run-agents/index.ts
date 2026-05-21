@@ -318,8 +318,8 @@ Deno.serve(async (req) => {
       });
     };
 
-    let postsCreated = 0;
-    for (const platform of requested) {
+let postsCreated = 0;
+    await Promise.all(requested.map(async (platform) => {
       const meta = PLATFORM_META[platform];
       const variants = Math.min(VARIATIONS_PER_PLATFORM, Math.max(usePicks.length, 1) === 1 ? 3 : VARIATIONS_PER_PLATFORM);
       const priorCaptions: string[] = [];
