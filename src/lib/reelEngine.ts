@@ -36,11 +36,23 @@ const FONT_URL = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/inter/Inter%
 let ffmpegSingleton: FFmpeg | null = null;
 
 async function loadFromBase(ff: FFmpeg, base: string) {
-  const [coreURL, wasmURL] = await Promise.all([
-    toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
-    toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
-  ]);
-  await ff.load({ coreURL, wasmURL });
+  // Try blob-URL strategy first (works around CORS/MIME quirks).
+  try {
+    const [coreURL, wasmURL] = await Promise.all([
+      toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+      toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+    ]);
+    await ff.load({ coreURL, wasmURL });
+    return;
+  } catch (blobErr) {
+    console.warn("[reelEngine] blob-URL load failed, retrying with direct URLs", blobErr);
+    // Fallback: pass direct CDN URLs. Avoids worker/blob importScripts
+    // issues some browsers hit when ffmpeg-core.js is fetched as a blob.
+    await ff.load({
+      coreURL: `${base}/ffmpeg-core.js`,
+      wasmURL: `${base}/ffmpeg-core.wasm`,
+    });
+  }
 }
 
 async function getFFmpeg(onLog?: (l: string) => void): Promise<FFmpeg> {
