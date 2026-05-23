@@ -104,6 +104,7 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
       urlRef.current = url;
       setReelUrl(url);
       setReelDur(durationSec);
+      setReelExt(blob.type.includes("mp4") ? "mp4" : "webm");
       toast.success(`Reel ready — ${durationSec.toFixed(0)}s`);
     } catch (e) {
       console.error("[ReelStudio] generate failed", e);
@@ -114,11 +115,13 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
     }
   }
 
+  const [reelExt, setReelExt] = useState<"mp4" | "webm">("mp4");
+
   async function onDownload() {
     if (!reelUrl) return;
     const a = document.createElement("a");
     a.href = reelUrl;
-    a.download = `${eventName.replace(/\s+/g, "-").toLowerCase()}-${platform}-reel.mp4`;
+    a.download = `${eventName.replace(/\s+/g, "-").toLowerCase()}-${platform}-reel.${reelExt}`;
     a.click();
   }
 
