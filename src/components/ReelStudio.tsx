@@ -114,11 +114,13 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
     }
   }
 
+  const [reelExt, setReelExt] = useState<"mp4" | "webm">("mp4");
+
   async function onDownload() {
     if (!reelUrl) return;
     const a = document.createElement("a");
     a.href = reelUrl;
-    a.download = `${eventName.replace(/\s+/g, "-").toLowerCase()}-${platform}-reel.mp4`;
+    a.download = `${eventName.replace(/\s+/g, "-").toLowerCase()}-${platform}-reel.${reelExt}`;
     a.click();
   }
 
