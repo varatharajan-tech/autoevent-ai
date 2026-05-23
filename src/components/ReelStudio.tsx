@@ -104,6 +104,7 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
       urlRef.current = url;
       setReelUrl(url);
       setReelDur(durationSec);
+      setReelExt(blob.type.includes("mp4") ? "mp4" : "webm");
       toast.success(`Reel ready — ${durationSec.toFixed(0)}s`);
     } catch (e) {
       console.error("[ReelStudio] generate failed", e);
