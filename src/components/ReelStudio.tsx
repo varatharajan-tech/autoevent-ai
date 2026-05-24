@@ -100,8 +100,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
   }, [posts, platform]);
 
   async function onGenerate() {
-    if (selected.length < 2) { toast.error("Select at least 2 photos"); return; }
-    if (selected.length > 12) { toast.error("Use up to 12 photos for a snappy reel"); return; }
+    if (selected.length < 2) { toast.error("Select at least 2 clips/photos"); return; }
+    if (selected.length > 12) { toast.error("Use up to 12 items for a snappy reel"); return; }
     setBusy(true); setProgress(0); setProgressMsg("Starting…");
     try {
       const orderedAssets = selected
@@ -110,7 +110,10 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       const captions = splitCaptions(captionSource, orderedAssets.length);
       const { blob, durationSec } = await generateReel(
         {
-          imageUrls: orderedAssets.map(a => a.public_url!),
+          slides: orderedAssets.map(a => ({
+            url: a.public_url!,
+            kind: a.kind === "video" ? "video" : "image",
+          })),
           captions,
           headline: eventName,
           mood,
