@@ -125,8 +125,33 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       urlRef.current = url;
       setReelUrl(url);
       setReelDur(durationSec);
-      setReelExt(blob.type.includes("mp4") ? "mp4" : "webm");
+      const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+      setReelExt(ext);
       toast.success(`Reel ready — ${durationSec.toFixed(0)}s`);
+
+      // Save to event history (storage + DB row)
+      setProgressMsg("Saving to event…"); setProgress(97);
+      try {
+        const path = `${userId}/${eventId}/reels/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("generated")
+          .upload(path, blob, { contentType: blob.type, upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from("generated").getPublicUrl(path);
+        const { error: insErr } = await supabase.from("generated_reels").insert({
+          event_id: eventId, user_id: userId, storage_path: path,
+          public_url: pub?.publicUrl ?? null, platform, mood,
+          duration_sec: durationSec, mime_type: blob.type || `video/${ext}`,
+          file_size: blob.size, slide_count: orderedAssets.length,
+        });
+        if (insErr) throw insErr;
+        await loadHistory();
+        toast.success("Saved to Reel History");
+      } catch (saveErr) {
+        console.error("[ReelStudio] save failed", saveErr);
+        const m = saveErr instanceof Error ? saveErr.message : String(saveErr);
+        toast.error(`Couldn't save to history: ${m}`);
+      }
     } catch (e) {
       console.error("[ReelStudio] generate failed", e);
       const msg = e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
