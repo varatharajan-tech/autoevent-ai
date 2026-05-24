@@ -112,7 +112,7 @@ function EventDetail() {
 
   async function handleFiles(files: FileList | null) {
     if (!files || !user || !ev) return;
-    const list = Array.from(files).filter(f => f.type.startsWith("image/"));
+    const list = Array.from(files).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (list.length === 0) return;
 
     // Instant previews
@@ -134,14 +134,17 @@ function EventDetail() {
       while (cursor < items.length) {
         const item = items[cursor++];
         try {
-          const compressed = await compressImage(item.file);
-          const path = `${user.id}/${ev.id}/${crypto.randomUUID()}-${compressed.name}`;
-          const { error: upErr } = await supabase.storage.from("event-media").upload(path, compressed, { contentType: compressed.type });
+          const isVideo = item.file.type.startsWith("video/");
+          const prepared = isVideo ? item.file : await compressImage(item.file);
+          const path = `${user.id}/${ev.id}/${crypto.randomUUID()}-${prepared.name}`;
+          const { error: upErr } = await supabase.storage.from("event-media").upload(path, prepared, { contentType: prepared.type });
           if (upErr) throw upErr;
           const { data: signed } = await supabase.storage.from("event-media").createSignedUrl(path, 60 * 60 * 24 * 7);
           const { error } = await supabase.from("assets").insert({
             event_id: ev.id, user_id: user.id, storage_path: path,
-            public_url: signed?.signedUrl ?? null, kind: "image", filename: item.file.name,
+            public_url: signed?.signedUrl ?? null,
+            kind: isVideo ? "video" : "image",
+            filename: item.file.name,
           });
           if (error) throw error;
           success++;
