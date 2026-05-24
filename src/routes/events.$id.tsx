@@ -25,7 +25,7 @@ type PlatformId = typeof PLATFORMS[number]["id"];
 export const Route = createFileRoute("/events/$id")({ component: EventDetail });
 
 type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
-type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null };
+type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
 type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
 type Log = { id: string; agent: string; level: string; message: string; created_at: string };
@@ -112,7 +112,7 @@ function EventDetail() {
 
   async function handleFiles(files: FileList | null) {
     if (!files || !user || !ev) return;
-    const list = Array.from(files).filter(f => f.type.startsWith("image/"));
+    const list = Array.from(files).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (list.length === 0) return;
 
     // Instant previews
@@ -134,14 +134,17 @@ function EventDetail() {
       while (cursor < items.length) {
         const item = items[cursor++];
         try {
-          const compressed = await compressImage(item.file);
-          const path = `${user.id}/${ev.id}/${crypto.randomUUID()}-${compressed.name}`;
-          const { error: upErr } = await supabase.storage.from("event-media").upload(path, compressed, { contentType: compressed.type });
+          const isVideo = item.file.type.startsWith("video/");
+          const prepared = isVideo ? item.file : await compressImage(item.file);
+          const path = `${user.id}/${ev.id}/${crypto.randomUUID()}-${prepared.name}`;
+          const { error: upErr } = await supabase.storage.from("event-media").upload(path, prepared, { contentType: prepared.type });
           if (upErr) throw upErr;
           const { data: signed } = await supabase.storage.from("event-media").createSignedUrl(path, 60 * 60 * 24 * 7);
           const { error } = await supabase.from("assets").insert({
             event_id: ev.id, user_id: user.id, storage_path: path,
-            public_url: signed?.signedUrl ?? null, kind: "image", filename: item.file.name,
+            public_url: signed?.signedUrl ?? null,
+            kind: isVideo ? "video" : "image",
+            filename: item.file.name,
           });
           if (error) throw error;
           success++;
@@ -211,7 +214,7 @@ function EventDetail() {
             {ev.description && <p className="text-muted-foreground mt-2 max-w-2xl">{ev.description}</p>}
           </div>
           <div className="flex gap-2">
-            <input ref={fileRef} type="file" multiple accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
+            <input ref={fileRef} type="file" multiple accept="image/*,video/*" hidden onChange={(e) => handleFiles(e.target.files)} />
             <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading}>
               {uploading ? <Loader2 className="size-4 animate-spin mr-1" /> : <Upload className="size-4 mr-1" />} Upload
             </Button>
@@ -374,7 +377,11 @@ function EventDetail() {
 function AssetCard({ asset }: { asset: Asset }) {
   return (
     <div className="relative aspect-square rounded-lg overflow-hidden bg-muted group border border-border/60">
-      {asset.public_url && <img src={asset.public_url} alt={asset.filename ?? "asset"} className="size-full object-cover" loading="lazy" />}
+      {asset.public_url && (asset.kind === "video" ? (
+        <video src={asset.public_url} muted playsInline preload="metadata" controls className="size-full object-cover" />
+      ) : (
+        <img src={asset.public_url} alt={asset.filename ?? "asset"} className="size-full object-cover" loading="lazy" />
+      ))}
       {asset.is_top_pick && (
         <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full flex items-center gap-1 font-medium">
           <Star className="size-3 fill-current" /> Pick

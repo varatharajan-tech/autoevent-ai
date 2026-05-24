@@ -7,7 +7,7 @@ import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngin
 import { MOODS, type Mood } from "@/lib/reelMusic";
 import { supabase } from "@/integrations/supabase/client";
 
-type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null };
+type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null; kind?: string | null };
 type Post = { platform: string; caption: string };
 type ReelRow = {
   id: string; storage_path: string; public_url: string | null;
@@ -100,8 +100,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
   }, [posts, platform]);
 
   async function onGenerate() {
-    if (selected.length < 2) { toast.error("Select at least 2 photos"); return; }
-    if (selected.length > 12) { toast.error("Use up to 12 photos for a snappy reel"); return; }
+    if (selected.length < 2) { toast.error("Select at least 2 clips/photos"); return; }
+    if (selected.length > 12) { toast.error("Use up to 12 items for a snappy reel"); return; }
     setBusy(true); setProgress(0); setProgressMsg("Starting…");
     try {
       const orderedAssets = selected
@@ -110,7 +110,10 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       const captions = splitCaptions(captionSource, orderedAssets.length);
       const { blob, durationSec } = await generateReel(
         {
-          imageUrls: orderedAssets.map(a => a.public_url!),
+          slides: orderedAssets.map(a => ({
+            url: a.public_url!,
+            kind: a.kind === "video" ? "video" : "image",
+          })),
           captions,
           headline: eventName,
           mood,
@@ -256,6 +259,7 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
               {eligible.map(a => {
                 const idx = selected.indexOf(a.id);
                 const picked = idx !== -1;
+                const isVideo = a.kind === "video";
                 return (
                   <button
                     key={a.id}
@@ -263,7 +267,14 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
                     onClick={() => toggle(a.id)}
                     className={`relative aspect-square rounded-md overflow-hidden border-2 transition ${picked ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-border"}`}
                   >
-                    {a.public_url && <img src={a.public_url} alt="" className="size-full object-cover" loading="lazy" />}
+                    {a.public_url && (isVideo ? (
+                      <video src={a.public_url} muted playsInline preload="metadata" className="size-full object-cover" />
+                    ) : (
+                      <img src={a.public_url} alt="" className="size-full object-cover" loading="lazy" />
+                    ))}
+                    {isVideo && (
+                      <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">CLIP</span>
+                    )}
                     {picked && (
                       <span className="absolute top-1 left-1 size-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">
                         {idx + 1}

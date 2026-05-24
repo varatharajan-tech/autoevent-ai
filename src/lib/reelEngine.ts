@@ -1,7 +1,7 @@
 // Reel generation engine — runs entirely in the browser using the
-// Canvas API + MediaRecorder API. No ffmpeg, no WebAssembly, no external
-// APIs, no keys. Renders 9:16 1080x1920 Ken-Burns slides with burned-in
-// headline + per-slide captions, mixed with procedurally-generated music.
+// Canvas API + MediaRecorder API. Supports BOTH still photos (with Ken
+// Burns motion) and short video clips (drawn frame-by-frame). No ffmpeg,
+// no WebAssembly, no external APIs, no keys.
 
 import { generateMoodMusic, type Mood } from "./reelMusic";
 
@@ -14,8 +14,10 @@ export const REEL_PLATFORMS: { id: ReelPlatform; label: string; maxDur: number }
   { id: "twitter",   label: "Twitter / X",     maxDur: 60 },
 ];
 
+export type ReelSlide = { url: string; kind: "image" | "video" };
+
 export type ReelInput = {
-  imageUrls: string[];
+  slides: ReelSlide[];
   captions: string[];
   headline: string;
   mood: Mood;
@@ -40,6 +42,23 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+function loadVideo(url: string): Promise<HTMLVideoElement> {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.src = url;
+    v.onloadeddata = () => resolve(v);
+    v.onerror = () => reject(new Error(`Failed to load video: ${url}`));
+  });
+}
+
+type LoadedSlide =
+  | { kind: "image"; el: HTMLImageElement; dur: number }
+  | { kind: "video"; el: HTMLVideoElement; dur: number };
+
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 3): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
@@ -58,20 +77,8 @@ function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number
   return lines.slice(0, maxLines);
 }
 
-function drawSlide(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  progress: number,
-  caption: string,
-  headline: string,
-  showHeadline: boolean,
-  brandColor: string,
-) {
-  // Ken Burns zoom + slight pan
-  const scale = 1.0 + progress * 0.15;
-  const panX = progress * 30;
-
-  const imgRatio = img.width / img.height;
+function drawCover(ctx: CanvasRenderingContext2D, src: CanvasImageSource, srcW: number, srcH: number, scale = 1, panX = 0) {
+  const imgRatio = srcW / srcH;
   const canvasRatio = W / H;
   let drawW: number, drawH: number;
   if (imgRatio > canvasRatio) {
@@ -83,11 +90,18 @@ function drawSlide(
   }
   const offsetX = (W - drawW) / 2 - panX;
   const offsetY = (H - drawH) / 2;
-
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
-  ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+  ctx.drawImage(src, offsetX, offsetY, drawW, drawH);
+}
 
+function drawOverlays(
+  ctx: CanvasRenderingContext2D,
+  caption: string,
+  headline: string,
+  showHeadline: boolean,
+  brandColor: string,
+) {
   // Bottom gradient for caption readability
   const grad = ctx.createLinearGradient(0, H * 0.5, 0, H);
   grad.addColorStop(0, "rgba(0,0,0,0)");
@@ -107,7 +121,6 @@ function drawSlide(
   ctx.fillRect(0, 0, W, 10);
   ctx.fillRect(0, H - 10, W, 10);
 
-  // Headline (first ~2.5s only)
   if (showHeadline) {
     ctx.fillStyle = "#FFD60A";
     ctx.font = "bold 64px Inter, Arial, sans-serif";
@@ -115,7 +128,6 @@ function drawSlide(
     ctx.fillText(headline.toUpperCase(), 50, 110);
   }
 
-  // Caption
   if (caption) {
     ctx.fillStyle = "#FFFFFF";
     ctx.font = "42px Inter, Arial, sans-serif";
@@ -159,7 +171,6 @@ async function buildAudioTrack(
     track: dest.stream.getAudioTracks()[0],
     start: () => {
       src.start();
-      // Fade out near end
       const fadeStart = Math.max(0, durationSec - 0.8);
       gain.gain.setValueAtTime(0.85, ctx.currentTime + fadeStart);
       gain.gain.linearRampToValueAtTime(0.0, ctx.currentTime + durationSec);
@@ -176,43 +187,63 @@ export async function generateReel(
   input: ReelInput,
   onProgress: ReelProgress,
 ): Promise<{ blob: Blob; durationSec: number }> {
-  const { imageUrls, captions, headline, mood, platform, secondsPerSlide, brandColor } = input;
-  if (imageUrls.length === 0) throw new Error("No images selected");
+  const { slides, captions, headline, mood, platform, secondsPerSlide, brandColor } = input;
+  if (!slides || slides.length === 0) throw new Error("No media selected");
   if (typeof MediaRecorder === "undefined") {
     throw new Error("Your browser does not support MediaRecorder. Try Chrome, Edge or Firefox.");
   }
 
   const platMeta = REEL_PLATFORMS.find(p => p.id === platform)!;
-  const slideDur = secondsPerSlide;
-  const totalDur = Math.min(platMeta.maxDur, imageUrls.length * slideDur);
   const accent = brandColor && /^#[0-9a-fA-F]{3,8}$/.test(brandColor) ? brandColor : "#7B2FBE";
 
-  onProgress("Loading images…", 5);
-  const images: HTMLImageElement[] = [];
-  for (let i = 0; i < imageUrls.length; i++) {
+  onProgress("Loading media…", 5);
+  const loaded: LoadedSlide[] = [];
+  for (let i = 0; i < slides.length; i++) {
+    const s = slides[i];
     try {
-      images.push(await loadImage(imageUrls[i]));
+      if (s.kind === "video") {
+        const v = await loadVideo(s.url);
+        const dur = Math.min(secondsPerSlide, Number.isFinite(v.duration) && v.duration > 0 ? v.duration : secondsPerSlide);
+        loaded.push({ kind: "video", el: v, dur });
+      } else {
+        const img = await loadImage(s.url);
+        loaded.push({ kind: "image", el: img, dur: secondsPerSlide });
+      }
     } catch (e) {
-      console.warn("[reelEngine] skipping image", imageUrls[i], e);
+      console.warn("[reelEngine] skipping slide", s, e);
     }
-    onProgress(`Loading image ${i + 1}/${imageUrls.length}`, 5 + Math.round((i + 1) / imageUrls.length * 20));
+    onProgress(`Loading ${i + 1}/${slides.length}`, 5 + Math.round((i + 1) / slides.length * 20));
   }
-  if (images.length === 0) throw new Error("Could not load any images (CORS or network).");
+  if (loaded.length === 0) throw new Error("Could not load any media (CORS or network).");
+
+  // Total duration respecting per-slide caps + platform max
+  let plannedDur = loaded.reduce((s, m) => s + m.dur, 0);
+  if (plannedDur > platMeta.maxDur) {
+    // Scale down each slide proportionally to fit platform cap
+    const scale = platMeta.maxDur / plannedDur;
+    loaded.forEach(m => { m.dur = m.dur * scale; });
+    plannedDur = platMeta.maxDur;
+  }
 
   onProgress("Composing soundtrack…", 28);
-  const musicBlob = await generateMoodMusic(mood, totalDur + 0.5);
+  const musicBlob = await generateMoodMusic(mood, plannedDur + 0.5);
 
-  // Setup canvas + streams
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D not available");
 
-  // Prime first frame so captureStream has content
-  drawSlide(ctx, images[0], 0, captions[0] ?? "", headline, true, accent);
+  // Prime first frame
+  const first = loaded[0];
+  if (first.kind === "image") {
+    drawCover(ctx, first.el, first.el.width, first.el.height, 1, 0);
+  } else {
+    drawCover(ctx, first.el, first.el.videoWidth || W, first.el.videoHeight || H);
+  }
+  drawOverlays(ctx, captions[0] ?? "", headline, true, accent);
 
   const videoStream = canvas.captureStream(FPS);
-  const audio = await buildAudioTrack(musicBlob, totalDur);
+  const audio = await buildAudioTrack(musicBlob, plannedDur);
   const stream = new MediaStream([...videoStream.getVideoTracks(), audio.track]);
 
   const mimeType = pickMime();
@@ -229,29 +260,49 @@ export async function generateReel(
   audio.start();
 
   const frameMs = 1000 / FPS;
-  const slideFrames = Math.round(slideDur * FPS);
-  const headlineFrames = Math.round(2.5 * FPS);
-  const transitionFrames = 9; // ~0.3s crossfade-to-black
+  const headlineSec = 2.5;
+  const transitionFrames = 9;
   const t0 = performance.now();
 
   let globalFrame = 0;
-  const totalFrames = images.length * slideFrames;
+  const totalFrames = Math.round(plannedDur * FPS);
 
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
+  for (let i = 0; i < loaded.length; i++) {
+    const m = loaded[i];
     const caption = captions[i] ?? captions[0] ?? "";
+    const slideFrames = Math.max(1, Math.round(m.dur * FPS));
+
+    if (m.kind === "video") {
+      try { m.el.currentTime = 0; await m.el.play(); } catch { /* ignore */ }
+    }
+
     for (let f = 0; f < slideFrames; f++) {
       const progress = f / slideFrames;
-      drawSlide(ctx, img, progress, caption, headline, i === 0 && globalFrame < headlineFrames, accent);
 
-      // Fade-to-black tail (except last slide)
-      if (i < images.length - 1 && f >= slideFrames - transitionFrames) {
+      if (m.kind === "image") {
+        const scale = 1.0 + progress * 0.15;
+        const panX = progress * 30;
+        drawCover(ctx, m.el, m.el.width, m.el.height, scale, panX);
+      } else {
+        // Loop video if it ends before the slide
+        if (m.el.ended || (m.el.duration && m.el.currentTime >= m.el.duration - 0.05)) {
+          try { m.el.currentTime = 0; await m.el.play(); } catch { /* ignore */ }
+        }
+        drawCover(ctx, m.el, m.el.videoWidth || W, m.el.videoHeight || H);
+      }
+
+      drawOverlays(
+        ctx, caption, headline,
+        i === 0 && (globalFrame / FPS) < headlineSec,
+        accent,
+      );
+
+      if (i < loaded.length - 1 && f >= slideFrames - transitionFrames) {
         const a = (f - (slideFrames - transitionFrames)) / transitionFrames;
         ctx.fillStyle = `rgba(0,0,0,${a})`;
         ctx.fillRect(0, 0, W, H);
       }
 
-      // Pace to wall clock
       const targetMs = (globalFrame + 1) * frameMs;
       const elapsed = performance.now() - t0;
       const wait = targetMs - elapsed;
@@ -260,12 +311,15 @@ export async function generateReel(
       globalFrame++;
       if (globalFrame % FPS === 0) {
         const pct = 32 + Math.round((globalFrame / totalFrames) * 60);
-        onProgress(`Rendering ${i + 1}/${images.length}…`, Math.min(92, pct));
+        onProgress(`Rendering ${i + 1}/${loaded.length}…`, Math.min(92, pct));
       }
+    }
+
+    if (m.kind === "video") {
+      try { m.el.pause(); } catch { /* ignore */ }
     }
   }
 
-  // Hold last frame briefly so the final moment is visible
   await new Promise(r => setTimeout(r, 600));
 
   onProgress("Finalizing…", 95);
@@ -274,5 +328,5 @@ export async function generateReel(
   audio.stop();
 
   onProgress("Done", 100);
-  return { blob, durationSec: totalDur };
+  return { blob, durationSec: plannedDur };
 }
