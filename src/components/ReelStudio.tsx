@@ -78,13 +78,6 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
   }, [eventId]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
-  const [perSlide, setPerSlide] = useState(3);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressMsg, setProgressMsg] = useState("");
-  const [reelUrl, setReelUrl] = useState<string | null>(null);
-  const [reelDur, setReelDur] = useState(0);
-  const urlRef = useRef<string | null>(null);
 
   useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
 
