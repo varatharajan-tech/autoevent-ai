@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download, Film, Wand2, Image as ImageIcon, Music2 } from "lucide-react";
+import { Loader2, Download, Film, Wand2, Image as ImageIcon, Music2, History, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngine";
 import { MOODS, type Mood } from "@/lib/reelMusic";
+import { supabase } from "@/integrations/supabase/client";
 
 type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null };
 type Post = { platform: string; caption: string };
+type ReelRow = {
+  id: string; storage_path: string; public_url: string | null;
+  platform: string; mood: string; duration_sec: number; mime_type: string;
+  file_size: number; slide_count: number; created_at: string;
+};
 
 type Props = {
+  eventId: string;
+  userId: string;
   assets: Asset[];
   posts: Post[];
   eventName: string;
