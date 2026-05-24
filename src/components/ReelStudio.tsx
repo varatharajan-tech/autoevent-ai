@@ -7,7 +7,7 @@ import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngin
 import { MOODS, type Mood } from "@/lib/reelMusic";
 import { supabase } from "@/integrations/supabase/client";
 
-type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null };
+type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null; kind?: string | null };
 type Post = { platform: string; caption: string };
 type ReelRow = {
   id: string; storage_path: string; public_url: string | null;
