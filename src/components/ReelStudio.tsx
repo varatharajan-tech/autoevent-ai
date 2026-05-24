@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download, Film, Wand2, Image as ImageIcon, Music2 } from "lucide-react";
+import { Loader2, Download, Film, Wand2, Image as ImageIcon, Music2, History, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngine";
 import { MOODS, type Mood } from "@/lib/reelMusic";
+import { supabase } from "@/integrations/supabase/client";
 
 type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null };
 type Post = { platform: string; caption: string };
+type ReelRow = {
+  id: string; storage_path: string; public_url: string | null;
+  platform: string; mood: string; duration_sec: number; mime_type: string;
+  file_size: number; slide_count: number; created_at: string;
+};
 
 type Props = {
+  eventId: string;
+  userId: string;
   assets: Asset[];
   posts: Post[];
   eventName: string;
@@ -40,7 +48,7 @@ function splitCaptions(text: string, n: number): string[] {
   return out.slice(0, n);
 }
 
-export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
+export function ReelStudio({ eventId, userId, assets, posts, eventName, brandColor }: Props) {
   const eligible = useMemo(() => assets.filter(a => a.public_url), [assets]);
   const initialSelected = useMemo(() => {
     const picks = eligible.filter(a => a.is_top_pick).map(a => a.id);
@@ -56,7 +64,20 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
   const [progressMsg, setProgressMsg] = useState("");
   const [reelUrl, setReelUrl] = useState<string | null>(null);
   const [reelDur, setReelDur] = useState(0);
+  const [history, setHistory] = useState<ReelRow[]>([]);
   const urlRef = useRef<string | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("generated_reels")
+      .select("*")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false });
+    if (error) { console.warn("[ReelStudio] history load failed", error); return; }
+    setHistory((data ?? []) as ReelRow[]);
+  }, [eventId]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
 
@@ -104,8 +125,33 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
       urlRef.current = url;
       setReelUrl(url);
       setReelDur(durationSec);
-      setReelExt(blob.type.includes("mp4") ? "mp4" : "webm");
+      const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+      setReelExt(ext);
       toast.success(`Reel ready — ${durationSec.toFixed(0)}s`);
+
+      // Save to event history (storage + DB row)
+      setProgressMsg("Saving to event…"); setProgress(97);
+      try {
+        const path = `${userId}/${eventId}/reels/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("generated")
+          .upload(path, blob, { contentType: blob.type, upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from("generated").getPublicUrl(path);
+        const { error: insErr } = await supabase.from("generated_reels").insert({
+          event_id: eventId, user_id: userId, storage_path: path,
+          public_url: pub?.publicUrl ?? null, platform, mood,
+          duration_sec: durationSec, mime_type: blob.type || `video/${ext}`,
+          file_size: blob.size, slide_count: orderedAssets.length,
+        });
+        if (insErr) throw insErr;
+        await loadHistory();
+        toast.success("Saved to Reel History");
+      } catch (saveErr) {
+        console.error("[ReelStudio] save failed", saveErr);
+        const m = saveErr instanceof Error ? saveErr.message : String(saveErr);
+        toast.error(`Couldn't save to history: ${m}`);
+      }
     } catch (e) {
       console.error("[ReelStudio] generate failed", e);
       const msg = e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
@@ -272,6 +318,70 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
           </div>
         </div>
       )}
+
+      <div className="bg-card border border-border/60 rounded-xl p-6 shadow-soft">
+        <div className="flex items-center gap-2 mb-4">
+          <History className="size-5 text-primary" />
+          <h4 className="font-display text-lg">Reel History</h4>
+          <span className="text-xs text-muted-foreground">({history.length})</span>
+        </div>
+        {history.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">No saved reels yet. Generate one above.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {history.map(h => {
+              const ext = h.mime_type?.includes("mp4") ? "mp4" : "webm";
+              const dlName = `${eventName.replace(/\s+/g, "-").toLowerCase()}-${h.platform}-reel.${ext}`;
+              return (
+                <div key={h.id} className="rounded-lg border border-border/60 bg-background overflow-hidden">
+                  {h.public_url ? (
+                    <video src={h.public_url} controls playsInline preload="metadata" className="w-full aspect-[9/16] bg-black" />
+                  ) : (
+                    <div className="w-full aspect-[9/16] bg-muted grid place-items-center text-xs text-muted-foreground">Unavailable</div>
+                  )}
+                  <div className="p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium capitalize">{h.platform}</span>
+                      <span className="text-muted-foreground font-mono">{Number(h.duration_sec).toFixed(0)}s</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono">
+                      {h.mood} · {h.slide_count} slides · {(h.file_size / 1024 / 1024).toFixed(1)} MB
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">{new Date(h.created_at).toLocaleString()}</div>
+                    <div className="flex gap-1.5 pt-1">
+                      {h.public_url && (
+                        <a
+                          href={h.public_url}
+                          download={dlName}
+                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:border-primary/50 transition flex-1 justify-center"
+                        >
+                          <Download className="size-3" /> Download
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm("Delete this reel?")) return;
+                          const { error: rmErr } = await supabase.storage.from("generated").remove([h.storage_path]);
+                          if (rmErr) console.warn("[ReelStudio] storage remove failed", rmErr);
+                          const { error: dbErr } = await supabase.from("generated_reels").delete().eq("id", h.id);
+                          if (dbErr) { toast.error(dbErr.message); return; }
+                          toast.success("Reel deleted");
+                          loadHistory();
+                        }}
+                        className="inline-flex items-center justify-center text-xs px-2 py-1 rounded border border-border hover:border-destructive/50 hover:text-destructive transition"
+                        aria-label="Delete reel"
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

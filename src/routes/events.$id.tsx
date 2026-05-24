@@ -341,7 +341,7 @@ function EventDetail() {
             </TabsContent>
 
             <TabsContent value="reel" className="mt-6">
-              <ReelStudio assets={assets} posts={posts} eventName={ev.name} brandColor={ev.brand_color} />
+              <ReelStudio eventId={ev.id} userId={ev.user_id} assets={assets} posts={posts} eventName={ev.name} brandColor={ev.brand_color} />
             </TabsContent>
 
             <TabsContent value="activity" className="mt-6">
