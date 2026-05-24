@@ -259,6 +259,7 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
               {eligible.map(a => {
                 const idx = selected.indexOf(a.id);
                 const picked = idx !== -1;
+                const isVideo = a.kind === "video";
                 return (
                   <button
                     key={a.id}
@@ -266,7 +267,14 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
                     onClick={() => toggle(a.id)}
                     className={`relative aspect-square rounded-md overflow-hidden border-2 transition ${picked ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-border"}`}
                   >
-                    {a.public_url && <img src={a.public_url} alt="" className="size-full object-cover" loading="lazy" />}
+                    {a.public_url && (isVideo ? (
+                      <video src={a.public_url} muted playsInline preload="metadata" className="size-full object-cover" />
+                    ) : (
+                      <img src={a.public_url} alt="" className="size-full object-cover" loading="lazy" />
+                    ))}
+                    {isVideo && (
+                      <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">CLIP</span>
+                    )}
                     {picked && (
                       <span className="absolute top-1 left-1 size-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">
                         {idx + 1}
