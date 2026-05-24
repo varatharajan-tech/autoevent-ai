@@ -48,7 +48,7 @@ function splitCaptions(text: string, n: number): string[] {
   return out.slice(0, n);
 }
 
-export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
+export function ReelStudio({ eventId, userId, assets, posts, eventName, brandColor }: Props) {
   const eligible = useMemo(() => assets.filter(a => a.public_url), [assets]);
   const initialSelected = useMemo(() => {
     const picks = eligible.filter(a => a.is_top_pick).map(a => a.id);
@@ -58,6 +58,26 @@ export function ReelStudio({ assets, posts, eventName, brandColor }: Props) {
   const [selected, setSelected] = useState<string[]>(initialSelected);
   const [platform, setPlatform] = useState<ReelPlatform>("instagram");
   const [mood, setMood] = useState<Mood>("cinematic");
+  const [perSlide, setPerSlide] = useState(3);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressMsg, setProgressMsg] = useState("");
+  const [reelUrl, setReelUrl] = useState<string | null>(null);
+  const [reelDur, setReelDur] = useState(0);
+  const [history, setHistory] = useState<ReelRow[]>([]);
+  const urlRef = useRef<string | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("generated_reels")
+      .select("*")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false });
+    if (error) { console.warn("[ReelStudio] history load failed", error); return; }
+    setHistory((data ?? []) as ReelRow[]);
+  }, [eventId]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
   const [perSlide, setPerSlide] = useState(3);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
