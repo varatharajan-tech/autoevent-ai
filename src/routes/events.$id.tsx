@@ -377,7 +377,11 @@ function EventDetail() {
 function AssetCard({ asset }: { asset: Asset }) {
   return (
     <div className="relative aspect-square rounded-lg overflow-hidden bg-muted group border border-border/60">
-      {asset.public_url && <img src={asset.public_url} alt={asset.filename ?? "asset"} className="size-full object-cover" loading="lazy" />}
+      {asset.public_url && (asset.kind === "video" ? (
+        <video src={asset.public_url} muted playsInline preload="metadata" controls className="size-full object-cover" />
+      ) : (
+        <img src={asset.public_url} alt={asset.filename ?? "asset"} className="size-full object-cover" loading="lazy" />
+      ))}
       {asset.is_top_pick && (
         <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full flex items-center gap-1 font-medium">
           <Star className="size-3 fill-current" /> Pick
