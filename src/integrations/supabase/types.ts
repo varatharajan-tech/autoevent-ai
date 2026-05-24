@@ -237,6 +237,51 @@ export type Database = {
           },
         ]
       }
+      generated_reels: {
+        Row: {
+          created_at: string
+          duration_sec: number
+          event_id: string
+          file_size: number
+          id: string
+          mime_type: string
+          mood: string
+          platform: string
+          public_url: string | null
+          slide_count: number
+          storage_path: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration_sec?: number
+          event_id: string
+          file_size?: number
+          id?: string
+          mime_type?: string
+          mood: string
+          platform: string
+          public_url?: string | null
+          slide_count?: number
+          storage_path: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          duration_sec?: number
+          event_id?: string
+          file_size?: number
+          id?: string
+          mime_type?: string
+          mood?: string
+          platform?: string
+          public_url?: string | null
+          slide_count?: number
+          storage_path?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
