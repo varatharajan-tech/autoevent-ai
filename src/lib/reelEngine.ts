@@ -1,7 +1,11 @@
-// Reel generation engine — runs entirely in the browser using the
-// Canvas API + MediaRecorder API. Supports BOTH still photos (with Ken
-// Burns motion) and short video clips (drawn frame-by-frame). No ffmpeg,
-// no WebAssembly, no external APIs, no keys.
+// Cinematic reel engine — Canvas + MediaRecorder. No ffmpeg / wasm / APIs.
+// Builds a multi-scene timeline: HOOK → (TRANSITION + CINEMATIC|ENERGY) × N → CLOSING.
+// Layers cinematic bars, vignette, color grade, gradients, animated titles,
+// brand badge, glow accents, progress bar and chromatic flash effects.
+//
+// Supports BOTH still photos (Ken Burns / drift / zoom-burst) and short video clips
+// (drawn frame-by-frame, looped to fill the scene). Soundtrack is layered via
+// AudioContext from generateMoodMusic().
 
 import { generateMoodMusic, type Mood } from "./reelMusic";
 
@@ -32,6 +36,70 @@ const W = 1080;
 const H = 1920;
 const FPS = 30;
 
+// ─── style presets (mapped from Mood) ──────────────────────────────────────
+type EditStyle = {
+  hookDuration: number;
+  closingDuration: number;
+  transitions: ("flash" | "fade" | "zoom")[];
+  colorGradeHook: ColorGrade;
+  colorGradeEven: ColorGrade;
+  colorGradeOdd: ColorGrade;
+  colorGradeClose: ColorGrade;
+  transFlashMs: number;
+  transFadeMs: number;
+  transZoomMs: number;
+};
+type ColorGrade = "cinematic" | "warm" | "cold" | "luxury" | "viral";
+
+const COLOR_GRADES: Record<ColorGrade, string> = {
+  cinematic: "rgba(10, 5, 30, 0.18)",
+  warm:      "rgba(40, 15, 0, 0.15)",
+  cold:      "rgba(0, 10, 40, 0.18)",
+  luxury:    "rgba(20, 10, 0, 0.20)",
+  viral:     "rgba(5, 0, 20, 0.12)",
+};
+
+function styleForMood(m: Mood): EditStyle {
+  switch (m) {
+    case "energetic": return {
+      hookDuration: 1.6, closingDuration: 2.2,
+      transitions: ["flash", "zoom", "flash"],
+      colorGradeHook: "viral", colorGradeEven: "warm",
+      colorGradeOdd: "viral", colorGradeClose: "viral",
+      transFlashMs: 160, transFadeMs: 220, transZoomMs: 900,
+    };
+    case "corporate": return {
+      hookDuration: 2.6, closingDuration: 3.4,
+      transitions: ["fade", "fade", "flash"],
+      colorGradeHook: "cold", colorGradeEven: "cold",
+      colorGradeOdd: "cinematic", colorGradeClose: "luxury",
+      transFlashMs: 220, transFadeMs: 320, transZoomMs: 1100,
+    };
+    case "upbeat": return {
+      hookDuration: 1.8, closingDuration: 2.4,
+      transitions: ["flash", "flash", "zoom"],
+      colorGradeHook: "warm", colorGradeEven: "warm",
+      colorGradeOdd: "viral", colorGradeClose: "warm",
+      transFlashMs: 150, transFadeMs: 220, transZoomMs: 900,
+    };
+    case "cinematic":
+    default: return {
+      hookDuration: 2.4, closingDuration: 3.0,
+      transitions: ["flash", "fade", "zoom"],
+      colorGradeHook: "cinematic", colorGradeEven: "cold",
+      colorGradeOdd: "warm", colorGradeClose: "luxury",
+      transFlashMs: 200, transFadeMs: 280, transZoomMs: 1000,
+    };
+  }
+}
+
+// ─── easings ──────────────────────────────────────────────────────────────
+const easeInOutCubic = (t: number) => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+const easeOutExpo    = (t: number) => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+const easeInExpo     = (t: number) => t <= 0 ? 0 : Math.pow(2, 10 * t - 10);
+const lerp           = (a: number, b: number, t: number) => a + (b - a) * t;
+
+// ─── loaders ──────────────────────────────────────────────────────────────
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -41,131 +109,190 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.src = url;
   });
 }
-
 function loadVideo(url: string): Promise<HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const v = document.createElement("video");
     v.crossOrigin = "anonymous";
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = "auto";
-    v.src = url;
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
     v.onloadeddata = () => resolve(v);
     v.onerror = () => reject(new Error(`Failed to load video: ${url}`));
   });
 }
 
 type LoadedSlide =
-  | { kind: "image"; el: HTMLImageElement; dur: number }
-  | { kind: "video"; el: HTMLVideoElement; dur: number };
+  | { kind: "image"; el: HTMLImageElement; srcW: number; srcH: number }
+  | { kind: "video"; el: HTMLVideoElement; srcW: number; srcH: number };
 
-function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 3): string[] {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let line = "";
-  for (const w of words) {
-    const test = line ? line + " " + w : w;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = w;
-    } else {
-      line = test;
-    }
-    if (lines.length >= maxLines) break;
-  }
-  if (line && lines.length < maxLines) lines.push(line);
-  return lines.slice(0, maxLines);
-}
-
-function drawCover(ctx: CanvasRenderingContext2D, src: CanvasImageSource, srcW: number, srcH: number, scale = 1, panX = 0) {
+// ─── drawing helpers ──────────────────────────────────────────────────────
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  src: CanvasImageSource, srcW: number, srcH: number,
+  scale = 1, offsetX = 0, offsetY = 0,
+) {
   const imgRatio = srcW / srcH;
   const canvasRatio = W / H;
   let drawW: number, drawH: number;
-  if (imgRatio > canvasRatio) {
-    drawH = H * scale;
-    drawW = drawH * imgRatio;
-  } else {
-    drawW = W * scale;
-    drawH = drawW / imgRatio;
-  }
-  const offsetX = (W - drawW) / 2 - panX;
-  const offsetY = (H - drawH) / 2;
+  if (imgRatio > canvasRatio) { drawH = H * scale; drawW = drawH * imgRatio; }
+  else                        { drawW = W * scale; drawH = drawW / imgRatio; }
+  const x = (W - drawW) / 2 + offsetX;
+  const y = (H - drawH) / 2 + offsetY;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
-  ctx.drawImage(src, offsetX, offsetY, drawW, drawH);
+  ctx.drawImage(src, x, y, drawW, drawH);
 }
 
-function drawOverlays(
+function drawScaledAround(
   ctx: CanvasRenderingContext2D,
-  caption: string,
-  headline: string,
-  showHeadline: boolean,
-  brandColor: string,
+  src: CanvasImageSource, srcW: number, srcH: number,
+  scale: number, panX: number, panY: number,
 ) {
-  // Bottom gradient for caption readability
-  const grad = ctx.createLinearGradient(0, H * 0.5, 0, H);
-  grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(1, "rgba(0,0,0,0.85)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, H * 0.5, W, H * 0.5);
-
-  // Top gradient for headline readability
-  const topGrad = ctx.createLinearGradient(0, 0, 0, 240);
-  topGrad.addColorStop(0, "rgba(0,0,0,0.6)");
-  topGrad.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = topGrad;
-  ctx.fillRect(0, 0, W, 240);
-
-  // Brand accent bars
-  ctx.fillStyle = brandColor;
-  ctx.fillRect(0, 0, W, 10);
-  ctx.fillRect(0, H - 10, W, 10);
-
-  if (showHeadline) {
-    ctx.fillStyle = "#FFD60A";
-    ctx.font = "bold 64px Inter, Arial, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(headline.toUpperCase(), 50, 110);
-  }
-
-  if (caption) {
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "42px Inter, Arial, sans-serif";
-    ctx.textAlign = "left";
-    const lines = wrapLines(ctx, caption, 980, 3);
-    const lineHeight = 56;
-    const startY = H - 140 - lines.length * lineHeight;
-    lines.forEach((l, i) => ctx.fillText(l, 50, startY + i * lineHeight));
-  }
+  ctx.save();
+  ctx.translate(W/2 + panX, H/2 + panY);
+  ctx.scale(scale, scale);
+  ctx.translate(-W/2, -H/2);
+  drawCover(ctx, src, srcW, srcH, 1, 0, 0);
+  ctx.restore();
 }
 
+function drawCinematicBars(ctx: CanvasRenderingContext2D, opacity = 1) {
+  const h = 120;
+  ctx.fillStyle = `rgba(0,0,0,${opacity})`;
+  ctx.fillRect(0, 0, W, h);
+  ctx.fillRect(0, H - h, W, h);
+}
+function drawVignette(ctx: CanvasRenderingContext2D, intensity = 0.55) {
+  const g = ctx.createRadialGradient(W/2, H/2, 200, W/2, H/2, 1100);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, `rgba(0,0,0,${intensity})`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function drawColorGrade(ctx: CanvasRenderingContext2D, grade: ColorGrade) {
+  ctx.fillStyle = COLOR_GRADES[grade]; ctx.fillRect(0, 0, W, H);
+}
+function drawBottomGradient(ctx: CanvasRenderingContext2D) {
+  const g = ctx.createLinearGradient(0, 1200, 0, H);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(0.5, "rgba(0,0,0,0.5)");
+  g.addColorStop(1, "rgba(0,0,0,0.92)");
+  ctx.fillStyle = g; ctx.fillRect(0, 1200, W, H - 1200);
+}
+function drawTopGradient(ctx: CanvasRenderingContext2D) {
+  const g = ctx.createLinearGradient(0, 0, 0, 350);
+  g.addColorStop(0, "rgba(0,0,0,0.75)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, 350);
+}
+function drawGlow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, rgb: string, alpha: number) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${rgb}, ${alpha})`);
+  g.addColorStop(1, `rgba(${rgb}, 0)`);
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, max = 3): string[] {
+  const words = text.split(/\s+/); const lines: string[] = []; let line = "";
+  for (const w of words) {
+    const t = line ? line + " " + w : w;
+    if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; }
+    else line = t;
+    if (lines.length >= max) break;
+  }
+  if (line && lines.length < max) lines.push(line);
+  return lines.slice(0, max);
+}
+
+function drawAnimatedTitle(
+  ctx: CanvasRenderingContext2D, text: string, progress: number,
+  y: number, color: string, size: number,
+) {
+  if (!text) return;
+  const slide = easeOutExpo(Math.min(progress * 3, 1));
+  const fade  = Math.min(progress * 4, 1);
+  const posY  = y + (1 - slide) * 60;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.fillStyle = color;
+  ctx.font = `bold ${size}px Inter, "Arial Black", Arial, sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 20; ctx.shadowOffsetY = 4;
+  const lines = wrapLines(ctx, text, 900, 3);
+  const lineH = size * 1.3;
+  const startY = posY - ((lines.length - 1) * lineH) / 2;
+  lines.forEach((l, i) => ctx.fillText(l, W/2, startY + i * lineH));
+  ctx.restore();
+}
+
+function drawBrandBadge(ctx: CanvasRenderingContext2D, brand: string, progress: number, accent: string) {
+  const fade = Math.min(progress * 5, 1);
+  ctx.save(); ctx.globalAlpha = fade;
+  const padX = 22; const dotR = 6;
+  ctx.font = "bold 22px Inter, Arial, sans-serif";
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  const text = brand.toUpperCase();
+  const textW = ctx.measureText(text).width;
+  const w = Math.min(720, textW + padX * 2 + dotR * 2 + 16);
+  const x = 50, y = 140, h = 52, r = 26;
+  ctx.fillStyle = accent + "D9";
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#06D6A0";
+  ctx.beginPath(); ctx.arc(x + 26, y + h/2, dotR, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillText(text, x + 44, y + h/2);
+  ctx.restore();
+}
+
+function drawProgressBar(ctx: CanvasRenderingContext2D, current: number, total: number, progress: number, accent: string) {
+  const fade = Math.min(progress * 5, 1);
+  ctx.save(); ctx.globalAlpha = fade * 0.75;
+  ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fillRect(50, 1860, 980, 3);
+  const fillW = 980 * Math.min(1, Math.max(0, (current - 1 + progress) / total));
+  const g = ctx.createLinearGradient(50, 0, 1030, 0);
+  g.addColorStop(0, accent); g.addColorStop(1, "#06D6A0");
+  ctx.fillStyle = g; ctx.fillRect(50, 1860, fillW, 3);
+  ctx.restore();
+}
+
+function drawChromaticFlash(ctx: CanvasRenderingContext2D, intensity: number) {
+  if (intensity <= 0) return;
+  const off = intensity * 8;
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = "rgba(255,0,0,0.18)"; ctx.fillRect(-off, 0, W, H);
+  ctx.fillStyle = "rgba(0,0,255,0.18)"; ctx.fillRect(off, 0, W, H);
+  ctx.restore();
+}
+
+// ─── recorder / audio plumbing ─────────────────────────────────────────────
 function pickMime(): string {
-  const candidates = [
+  const c = [
     "video/mp4;codecs=h264,aac",
     "video/mp4",
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
     "video/webm",
   ];
-  for (const m of candidates) {
+  for (const m of c) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m)) return m;
   }
   return "video/webm";
 }
 
-async function buildAudioTrack(
-  musicBlob: Blob,
-  durationSec: number,
-): Promise<{ track: MediaStreamTrack; start: () => void; stop: () => void; ctx: AudioContext }> {
-  const AC: typeof AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+async function buildAudioTrack(musicBlob: Blob, durationSec: number) {
+  const AC: typeof AudioContext = window.AudioContext
+    || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new AC();
   const dest = ctx.createMediaStreamDestination();
   const arr = await musicBlob.arrayBuffer();
   const buf = await ctx.decodeAudioData(arr.slice(0));
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  const gain = ctx.createGain();
-  gain.gain.value = 0.85;
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const gain = ctx.createGain(); gain.gain.value = 0.85;
   src.connect(gain).connect(dest);
   return {
     track: dest.stream.getAudioTracks()[0],
@@ -173,16 +300,143 @@ async function buildAudioTrack(
       src.start();
       const fadeStart = Math.max(0, durationSec - 0.8);
       gain.gain.setValueAtTime(0.85, ctx.currentTime + fadeStart);
-      gain.gain.linearRampToValueAtTime(0.0, ctx.currentTime + durationSec);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + durationSec);
     },
-    stop: () => {
-      try { src.stop(); } catch { /* ignore */ }
-      ctx.close().catch(() => undefined);
-    },
-    ctx,
+    stop: () => { try { src.stop(); } catch { /* */ } ctx.close().catch(() => undefined); },
   };
 }
 
+// ─── timeline segments ─────────────────────────────────────────────────────
+type Segment =
+  | { kind: "hook";  slide: LoadedSlide; frames: number; caption: string }
+  | { kind: "scene"; slide: LoadedSlide; frames: number; caption: string;
+      mode: "cinematic" | "energy"; sceneIdx: number; totalScenes: number;
+      grade: ColorGrade }
+  | { kind: "flash"; frames: number }
+  | { kind: "fade-out"; frames: number }
+  | { kind: "fade-in"; frames: number }
+  | { kind: "zoom-burst"; slide: LoadedSlide; frames: number }
+  | { kind: "closing"; slide: LoadedSlide; frames: number;
+      eventName: string; brandColor: string };
+
+function ensureVideoPlaying(s: LoadedSlide) {
+  if (s.kind !== "video") return;
+  if (s.el.paused || s.el.ended) {
+    try { s.el.currentTime = 0; void s.el.play(); } catch { /* */ }
+  } else if (s.el.duration && s.el.currentTime >= s.el.duration - 0.05) {
+    try { s.el.currentTime = 0; void s.el.play(); } catch { /* */ }
+  }
+}
+
+function renderSegmentFrame(
+  ctx: CanvasRenderingContext2D, seg: Segment, f: number,
+  headline: string, accent: string, style: EditStyle,
+) {
+  const t = seg.frames <= 1 ? 1 : f / seg.frames;
+
+  switch (seg.kind) {
+    case "hook": {
+      const ease = easeOutExpo(t);
+      const scale = 1.4 - ease * 0.4;
+      if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+      drawScaledAround(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH, scale, 0, 0);
+      drawColorGrade(ctx, style.colorGradeHook);
+      drawVignette(ctx, 0.5);
+      drawTopGradient(ctx); drawBottomGradient(ctx);
+      drawCinematicBars(ctx, Math.min(t * 3, 1));
+      drawBrandBadge(ctx, headline, t, accent);
+      drawGlow(ctx, W/2, 1800, 400, "123,47,190", 0.3 * t);
+      if (seg.caption) drawAnimatedTitle(ctx, seg.caption, t, 1680, "#FFFFFF", 46);
+      return;
+    }
+    case "scene": {
+      if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+      if (seg.mode === "cinematic") {
+        const dirs = [
+          { fx:-20,tx:20, fy:-10,ty:10, fs:1.05,ts:1.22 },
+          { fx:20,tx:-20, fy:10,ty:-10, fs:1.22,ts:1.05 },
+          { fx:0, tx:0,  fy:-30,ty:5,  fs:1.10,ts:1.28 },
+        ];
+        const d = dirs[seg.sceneIdx % dirs.length];
+        const k = easeInOutCubic(t);
+        drawScaledAround(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH,
+          lerp(d.fs, d.ts, k), lerp(d.fx, d.tx, k), lerp(d.fy, d.ty, k));
+      } else {
+        const drift = lerp(-35, 35, t);
+        const pulse = 1 + Math.sin(t * Math.PI) * 0.04;
+        drawScaledAround(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH, pulse, drift, 0);
+      }
+      drawColorGrade(ctx, seg.grade);
+      drawVignette(ctx, 0.5);
+      drawTopGradient(ctx); drawBottomGradient(ctx);
+      drawCinematicBars(ctx, 1);
+      drawBrandBadge(ctx, headline, 1, accent);
+      drawAnimatedTitle(ctx, seg.caption, t, 1700, "#FFFFFF", 44);
+      drawProgressBar(ctx, seg.sceneIdx + 1, seg.totalScenes, t, accent);
+      return;
+    }
+    case "flash": {
+      // White-out flash: in then out
+      const a = t < 0.5 ? easeInExpo(t * 2) : 1 - easeOutExpo((t - 0.5) * 2);
+      ctx.fillStyle = `rgba(255,255,255,${Math.max(0, Math.min(1, a * 0.95))})`;
+      ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "fade-out": {
+      ctx.fillStyle = `rgba(0,0,0,${easeInOutCubic(t)})`;
+      ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "fade-in": {
+      // Caller is expected to draw a background first if needed; here we render full black fade.
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = `rgba(0,0,0,${1 - easeInOutCubic(t)})`;
+      ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "zoom-burst": {
+      if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+      let scale: number;
+      if (t < 0.3) scale = 1 + easeInExpo(t / 0.3) * 0.4;
+      else         scale = 1.4 - easeOutExpo((t - 0.3) / 0.7) * 0.3;
+      drawScaledAround(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH, scale, 0, 0);
+      drawChromaticFlash(ctx, t < 0.2 ? (1 - t / 0.2) : 0);
+      drawColorGrade(ctx, "cinematic");
+      drawVignette(ctx, 0.6);
+      drawCinematicBars(ctx, 1);
+      return;
+    }
+    case "closing": {
+      if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+      const scale = 1.18 - t * 0.13;
+      drawScaledAround(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH, scale, 0, 0);
+      drawColorGrade(ctx, style.colorGradeClose);
+      drawVignette(ctx, 0.7);
+      drawTopGradient(ctx); drawBottomGradient(ctx);
+      drawCinematicBars(ctx, 1);
+      drawGlow(ctx, W/2, 1800, 500, "123,47,190", 0.4 * Math.min(t * 3, 1));
+      drawAnimatedTitle(ctx, seg.eventName.toUpperCase(), Math.min(t * 2, 1), 900, "#FFD60A", 58);
+      if (t > 0.45) {
+        const a = Math.min((t - 0.45) * 4, 1);
+        ctx.save(); ctx.globalAlpha = a * 0.65;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "24px Inter, Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Cinematic reel", W/2, 980);
+        ctx.restore();
+      }
+      drawBrandBadge(ctx, headline, 1, accent);
+      // tail fade-out in last 15% of the closing scene
+      if (t > 0.85) {
+        const a = (t - 0.85) / 0.15;
+        ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H);
+      }
+      return;
+    }
+  }
+}
+
+// ─── main ──────────────────────────────────────────────────────────────────
 export async function generateReel(
   input: ReelInput,
   onProgress: ReelProgress,
@@ -195,52 +449,100 @@ export async function generateReel(
 
   const platMeta = REEL_PLATFORMS.find(p => p.id === platform)!;
   const accent = brandColor && /^#[0-9a-fA-F]{3,8}$/.test(brandColor) ? brandColor : "#7B2FBE";
+  const style = styleForMood(mood);
 
-  onProgress("Loading media…", 5);
+  // Load all media
+  onProgress("Loading media…", 4);
   const loaded: LoadedSlide[] = [];
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
     try {
       if (s.kind === "video") {
         const v = await loadVideo(s.url);
-        const dur = Math.min(secondsPerSlide, Number.isFinite(v.duration) && v.duration > 0 ? v.duration : secondsPerSlide);
-        loaded.push({ kind: "video", el: v, dur });
+        loaded.push({ kind: "video", el: v, srcW: v.videoWidth || W, srcH: v.videoHeight || H });
       } else {
         const img = await loadImage(s.url);
-        loaded.push({ kind: "image", el: img, dur: secondsPerSlide });
+        loaded.push({ kind: "image", el: img, srcW: img.width, srcH: img.height });
       }
-    } catch (e) {
-      console.warn("[reelEngine] skipping slide", s, e);
-    }
-    onProgress(`Loading ${i + 1}/${slides.length}`, 5 + Math.round((i + 1) / slides.length * 20));
+    } catch (e) { console.warn("[reelEngine] skipping slide", s, e); }
+    onProgress(`Loading ${i + 1}/${slides.length}`, 4 + Math.round((i + 1) / slides.length * 18));
   }
   if (loaded.length === 0) throw new Error("Could not load any media (CORS or network).");
 
-  // Total duration respecting per-slide caps + platform max
-  let plannedDur = loaded.reduce((s, m) => s + m.dur, 0);
-  if (plannedDur > platMeta.maxDur) {
-    // Scale down each slide proportionally to fit platform cap
-    const scale = platMeta.maxDur / plannedDur;
-    loaded.forEach(m => { m.dur = m.dur * scale; });
-    plannedDur = platMeta.maxDur;
+  // Build timeline
+  const f = (sec: number) => Math.max(1, Math.round(sec * FPS));
+  const transFlash = f(style.transFlashMs / 1000);
+  const transFadeOut = f((style.transFadeMs / 1000) * 0.55);
+  const transFadeIn  = f((style.transFadeMs / 1000) * 0.55);
+  const transZoom   = f(style.transZoomMs / 1000);
+
+  const timeline: Segment[] = [];
+  // HOOK
+  const hookSlide = loaded[0];
+  const hookFrames = f(Math.min(style.hookDuration, Math.max(1.2, secondsPerSlide)));
+  const hookCaption = captions[0] ?? "";
+  timeline.push({ kind: "hook", slide: hookSlide, frames: hookFrames, caption: hookCaption });
+
+  // MIDDLE scenes (slides 1..N-2 if >=3 slides, else fall through; closing handles last)
+  const middleSlides = loaded.length >= 3 ? loaded.slice(1, -1) : loaded.slice(1);
+  const closingSlide = loaded.length >= 2 ? loaded[loaded.length - 1] : loaded[0];
+
+  const totalScenes = middleSlides.length;
+  middleSlides.forEach((slide, i) => {
+    // transition into this scene
+    const tType = style.transitions[i % style.transitions.length];
+    if (tType === "flash") {
+      timeline.push({ kind: "flash", frames: transFlash });
+    } else if (tType === "zoom") {
+      timeline.push({ kind: "zoom-burst", slide, frames: transZoom });
+    } else {
+      timeline.push({ kind: "fade-out", frames: transFadeOut });
+      timeline.push({ kind: "fade-in",  frames: transFadeIn  });
+    }
+    const isEven = i % 2 === 0;
+    const sceneSecs = Math.max(1.5, secondsPerSlide);
+    timeline.push({
+      kind: "scene", slide,
+      frames: f(sceneSecs),
+      caption: captions[i + 1] ?? captions[0] ?? "",
+      mode: isEven ? "cinematic" : "energy",
+      sceneIdx: i, totalScenes,
+      grade: isEven ? style.colorGradeEven : style.colorGradeOdd,
+    });
+  });
+
+  // Final flash before closing
+  if (loaded.length >= 2) {
+    timeline.push({ kind: "flash", frames: transFlash });
+    timeline.push({
+      kind: "closing", slide: closingSlide,
+      frames: f(style.closingDuration),
+      eventName: headline, brandColor: accent,
+    });
   }
 
-  onProgress("Composing soundtrack…", 28);
+  // Honor platform max duration
+  let totalFrames = timeline.reduce((s, seg) => s + seg.frames, 0);
+  const maxFrames = Math.floor(platMeta.maxDur * FPS);
+  if (totalFrames > maxFrames) {
+    const k = maxFrames / totalFrames;
+    timeline.forEach(seg => { seg.frames = Math.max(1, Math.round(seg.frames * k)); });
+    totalFrames = timeline.reduce((s, seg) => s + seg.frames, 0);
+  }
+  const plannedDur = totalFrames / FPS;
+
+  // Audio
+  onProgress("Composing soundtrack…", 24);
   const musicBlob = await generateMoodMusic(mood, plannedDur + 0.5);
 
+  // Canvas + recorder
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D not available");
 
-  // Prime first frame
-  const first = loaded[0];
-  if (first.kind === "image") {
-    drawCover(ctx, first.el, first.el.width, first.el.height, 1, 0);
-  } else {
-    drawCover(ctx, first.el, first.el.videoWidth || W, first.el.videoHeight || H);
-  }
-  drawOverlays(ctx, captions[0] ?? "", headline, true, accent);
+  // Prime first frame so the stream starts on something visual
+  renderSegmentFrame(ctx, timeline[0], 0, headline, accent, style);
 
   const videoStream = canvas.captureStream(FPS);
   const audio = await buildAudioTrack(musicBlob, plannedDur);
@@ -255,53 +557,21 @@ export async function generateReel(
     recorder.onerror = (ev) => reject(new Error(`Recorder error: ${(ev as ErrorEvent).message ?? "unknown"}`));
   });
 
-  onProgress("Rendering reel…", 32);
+  onProgress("Rendering cinematic reel…", 28);
   recorder.start(250);
   audio.start();
 
+  // Kick off any videos that will be needed
+  loaded.forEach(s => { if (s.kind === "video") { try { s.el.play().catch(() => undefined); } catch { /* */ } } });
+
   const frameMs = 1000 / FPS;
-  const headlineSec = 2.5;
-  const transitionFrames = 9;
   const t0 = performance.now();
-
   let globalFrame = 0;
-  const totalFrames = Math.round(plannedDur * FPS);
 
-  for (let i = 0; i < loaded.length; i++) {
-    const m = loaded[i];
-    const caption = captions[i] ?? captions[0] ?? "";
-    const slideFrames = Math.max(1, Math.round(m.dur * FPS));
-
-    if (m.kind === "video") {
-      try { m.el.currentTime = 0; await m.el.play(); } catch { /* ignore */ }
-    }
-
-    for (let f = 0; f < slideFrames; f++) {
-      const progress = f / slideFrames;
-
-      if (m.kind === "image") {
-        const scale = 1.0 + progress * 0.15;
-        const panX = progress * 30;
-        drawCover(ctx, m.el, m.el.width, m.el.height, scale, panX);
-      } else {
-        // Loop video if it ends before the slide
-        if (m.el.ended || (m.el.duration && m.el.currentTime >= m.el.duration - 0.05)) {
-          try { m.el.currentTime = 0; await m.el.play(); } catch { /* ignore */ }
-        }
-        drawCover(ctx, m.el, m.el.videoWidth || W, m.el.videoHeight || H);
-      }
-
-      drawOverlays(
-        ctx, caption, headline,
-        i === 0 && (globalFrame / FPS) < headlineSec,
-        accent,
-      );
-
-      if (i < loaded.length - 1 && f >= slideFrames - transitionFrames) {
-        const a = (f - (slideFrames - transitionFrames)) / transitionFrames;
-        ctx.fillStyle = `rgba(0,0,0,${a})`;
-        ctx.fillRect(0, 0, W, H);
-      }
+  for (let segIdx = 0; segIdx < timeline.length; segIdx++) {
+    const seg = timeline[segIdx];
+    for (let f2 = 0; f2 < seg.frames; f2++) {
+      renderSegmentFrame(ctx, seg, f2, headline, accent, style);
 
       const targetMs = (globalFrame + 1) * frameMs;
       const elapsed = performance.now() - t0;
@@ -310,22 +580,22 @@ export async function generateReel(
 
       globalFrame++;
       if (globalFrame % FPS === 0) {
-        const pct = 32 + Math.round((globalFrame / totalFrames) * 60);
-        onProgress(`Rendering ${i + 1}/${loaded.length}…`, Math.min(92, pct));
+        const pct = 28 + Math.round((globalFrame / totalFrames) * 65);
+        onProgress(`Rendering ${segIdx + 1}/${timeline.length}…`, Math.min(93, pct));
       }
-    }
-
-    if (m.kind === "video") {
-      try { m.el.pause(); } catch { /* ignore */ }
     }
   }
 
-  await new Promise(r => setTimeout(r, 600));
+  // Tail so the recorder captures the last frames
+  await new Promise(r => setTimeout(r, 500));
 
-  onProgress("Finalizing…", 95);
+  onProgress("Finalizing…", 96);
   recorder.stop();
   const blob = await stopped;
   audio.stop();
+
+  // Pause any video elements
+  loaded.forEach(s => { if (s.kind === "video") { try { s.el.pause(); } catch { /* */ } } });
 
   onProgress("Done", 100);
   return { blob, durationSec: plannedDur };
