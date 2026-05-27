@@ -7,7 +7,7 @@
 // (drawn frame-by-frame, looped to fill the scene). Soundtrack is layered via
 // AudioContext from generateMoodMusic().
 
-import { generateMoodMusic, type Mood } from "./reelMusic";
+import { generateMoodMusic, BPM_BY_MOOD, type Mood } from "./reelMusic";
 
 export type ReelPlatform = "instagram" | "youtube" | "facebook" | "twitter";
 
@@ -222,6 +222,67 @@ function drawAnimatedTitle(
   ctx.restore();
 }
 
+// Split a caption into sentence-level phrases for beat-paced display.
+function splitPhrases(text: string): string[] {
+  if (!text) return [];
+  const sentences = text.replace(/\s+/g, " ").trim()
+    .split(/(?<=[.!?…])\s+/)
+    .flatMap(s => s.length > 70 ? s.split(/,\s+/) : [s])
+    .map(s => s.trim()).filter(Boolean);
+  return sentences.length ? sentences : [text.trim()];
+}
+
+// Beat-paced caption: cycles through phrases on beat boundaries, with a
+// reserved tail (in frames) at the end so the last phrase fully fades out
+// BEFORE the next transition starts. Never cuts mid-fade.
+function drawPacedCaption(
+  ctx: CanvasRenderingContext2D,
+  phrases: string[],
+  frame: number,
+  totalFrames: number,
+  beatFrames: number,
+  tailFrames: number,
+  y: number, color: string, size: number,
+) {
+  if (!phrases.length) return;
+  const usable = Math.max(beatFrames, totalFrames - tailFrames);
+  // Allocate at least 2 beats per phrase, distributed to fill `usable`.
+  const minPhraseFrames = beatFrames * 2;
+  const maxPhrases = Math.max(1, Math.min(phrases.length, Math.floor(usable / minPhraseFrames)));
+  const phraseFrames = Math.floor(usable / maxPhrases);
+  // If we're in the tail buffer, fade out the last phrase smoothly.
+  if (frame >= usable) {
+    const tailT = Math.min(1, (frame - usable) / Math.max(1, tailFrames));
+    const fade = 1 - easeInOutCubic(tailT);
+    if (fade <= 0.02) return;
+    drawAnimatedTitleAlpha(ctx, phrases[maxPhrases - 1], 1, y, color, size, fade);
+    return;
+  }
+  const idx = Math.min(maxPhrases - 1, Math.floor(frame / phraseFrames));
+  const localFrame = frame - idx * phraseFrames;
+  const localT = phraseFrames <= 1 ? 1 : localFrame / phraseFrames;
+  // In-phrase envelope: fade-in 0–25%, hold, fade-out 80–100%.
+  let envelope = 1;
+  if (localT < 0.25) envelope = easeOutExpo(localT / 0.25);
+  else if (localT > 0.80) envelope = 1 - easeInOutCubic((localT - 0.80) / 0.20);
+  // `progress` arg of drawAnimatedTitle drives the slide-up; reuse early portion.
+  const slideProgress = Math.min(1, localT * 4);
+  drawAnimatedTitleAlpha(ctx, phrases[idx], slideProgress, y, color, size, envelope);
+}
+
+function drawAnimatedTitleAlpha(
+  ctx: CanvasRenderingContext2D, text: string, progress: number,
+  y: number, color: string, size: number, alpha: number,
+) {
+  if (!text || alpha <= 0) return;
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = prev * alpha;
+  drawAnimatedTitle(ctx, text, progress, y, color, size);
+  ctx.globalAlpha = prev;
+}
+
+
+
 function drawBrandBadge(ctx: CanvasRenderingContext2D, brand: string, progress: number, accent: string) {
   const fade = Math.min(progress * 5, 1);
   ctx.save(); ctx.globalAlpha = fade;
@@ -308,8 +369,10 @@ async function buildAudioTrack(musicBlob: Blob, durationSec: number) {
 
 // ─── timeline segments ─────────────────────────────────────────────────────
 type Segment =
-  | { kind: "hook";  slide: LoadedSlide; frames: number; caption: string }
+  | { kind: "hook";  slide: LoadedSlide; frames: number; caption: string;
+      phrases: string[]; beatFrames: number; tailFrames: number }
   | { kind: "scene"; slide: LoadedSlide; frames: number; caption: string;
+      phrases: string[]; beatFrames: number; tailFrames: number;
       mode: "cinematic" | "energy"; sceneIdx: number; totalScenes: number;
       grade: ColorGrade }
   | { kind: "flash"; frames: number }
@@ -346,7 +409,7 @@ function renderSegmentFrame(
       drawCinematicBars(ctx, Math.min(t * 3, 1));
       drawBrandBadge(ctx, headline, t, accent);
       drawGlow(ctx, W/2, 1800, 400, "123,47,190", 0.3 * t);
-      if (seg.caption) drawAnimatedTitle(ctx, seg.caption, t, 1680, "#FFFFFF", 46);
+      drawPacedCaption(ctx, seg.phrases, f, seg.frames, seg.beatFrames, seg.tailFrames, 1680, "#FFFFFF", 46);
       return;
     }
     case "scene": {
@@ -371,7 +434,7 @@ function renderSegmentFrame(
       drawTopGradient(ctx); drawBottomGradient(ctx);
       drawCinematicBars(ctx, 1);
       drawBrandBadge(ctx, headline, 1, accent);
-      drawAnimatedTitle(ctx, seg.caption, t, 1700, "#FFFFFF", 44);
+      drawPacedCaption(ctx, seg.phrases, f, seg.frames, seg.beatFrames, seg.tailFrames, 1700, "#FFFFFF", 44);
       drawProgressBar(ctx, seg.sceneIdx + 1, seg.totalScenes, t, accent);
       return;
     }
@@ -469,19 +532,38 @@ export async function generateReel(
   }
   if (loaded.length === 0) throw new Error("Could not load any media (CORS or network).");
 
-  // Build timeline
-  const f = (sec: number) => Math.max(1, Math.round(sec * FPS));
-  const transFlash = f(style.transFlashMs / 1000);
-  const transFadeOut = f((style.transFadeMs / 1000) * 0.55);
-  const transFadeIn  = f((style.transFadeMs / 1000) * 0.55);
-  const transZoom   = f(style.transZoomMs / 1000);
+  // Build timeline (beat-aware)
+  const bpm = BPM_BY_MOOD[mood] ?? 90;
+  const beatFrames = Math.max(1, Math.round((60 / bpm) * FPS));
+  
+  const snapBeats = (sec: number, minBeats = 2) => {
+    const want = Math.max(1, Math.round(sec * FPS));
+    const beats = Math.max(minBeats, Math.ceil(want / beatFrames));
+    return beats * beatFrames;
+  };
+  const halfBeat = Math.max(1, Math.round(beatFrames / 2));
+  const snapHalf = (sec: number) => {
+    const want = Math.max(1, Math.round(sec * FPS));
+    return Math.max(halfBeat, Math.round(want / halfBeat) * halfBeat);
+  };
+  const transFlash = snapHalf(style.transFlashMs / 1000);
+  const transFadeOut = snapHalf((style.transFadeMs / 1000) * 0.55);
+  const transFadeIn  = snapHalf((style.transFadeMs / 1000) * 0.55);
+  const transZoom   = snapBeats(style.transZoomMs / 1000, 2);
+
+  // Reserve a 1-beat tail at the end of every captioned segment so the last
+  // sentence fully fades out BEFORE the next transition starts.
+  const tailFrames = beatFrames;
 
   const timeline: Segment[] = [];
   // HOOK
   const hookSlide = loaded[0];
-  const hookFrames = f(Math.min(style.hookDuration, Math.max(1.2, secondsPerSlide)));
+  const hookFrames = snapBeats(Math.min(style.hookDuration, Math.max(1.2, secondsPerSlide)), 2);
   const hookCaption = captions[0] ?? "";
-  timeline.push({ kind: "hook", slide: hookSlide, frames: hookFrames, caption: hookCaption });
+  timeline.push({
+    kind: "hook", slide: hookSlide, frames: hookFrames, caption: hookCaption,
+    phrases: splitPhrases(hookCaption), beatFrames, tailFrames,
+  });
 
   // MIDDLE scenes (slides 1..N-2 if >=3 slides, else fall through; closing handles last)
   const middleSlides = loaded.length >= 3 ? loaded.slice(1, -1) : loaded.slice(1);
@@ -501,10 +583,16 @@ export async function generateReel(
     }
     const isEven = i % 2 === 0;
     const sceneSecs = Math.max(1.5, secondsPerSlide);
+    const sceneCaption = captions[i + 1] ?? captions[0] ?? "";
+    const phrases = splitPhrases(sceneCaption);
+    // Make sure scene length fits at least (phrases × 2 beats) + tail.
+    const minBeats = Math.max(2, phrases.length * 2 + 1);
+    const sceneFrames = Math.max(snapBeats(sceneSecs, 2), minBeats * beatFrames);
     timeline.push({
       kind: "scene", slide,
-      frames: f(sceneSecs),
-      caption: captions[i + 1] ?? captions[0] ?? "",
+      frames: sceneFrames,
+      caption: sceneCaption,
+      phrases, beatFrames, tailFrames,
       mode: isEven ? "cinematic" : "energy",
       sceneIdx: i, totalScenes,
       grade: isEven ? style.colorGradeEven : style.colorGradeOdd,
@@ -516,7 +604,7 @@ export async function generateReel(
     timeline.push({ kind: "flash", frames: transFlash });
     timeline.push({
       kind: "closing", slide: closingSlide,
-      frames: f(style.closingDuration),
+      frames: snapBeats(style.closingDuration, 4),
       eventName: headline, brandColor: accent,
     });
   }
