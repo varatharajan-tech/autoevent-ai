@@ -532,19 +532,38 @@ export async function generateReel(
   }
   if (loaded.length === 0) throw new Error("Could not load any media (CORS or network).");
 
-  // Build timeline
+  // Build timeline (beat-aware)
+  const bpm = BPM_BY_MOOD[mood] ?? 90;
+  const beatFrames = Math.max(1, Math.round((60 / bpm) * FPS));
   const f = (sec: number) => Math.max(1, Math.round(sec * FPS));
-  const transFlash = f(style.transFlashMs / 1000);
-  const transFadeOut = f((style.transFadeMs / 1000) * 0.55);
-  const transFadeIn  = f((style.transFadeMs / 1000) * 0.55);
-  const transZoom   = f(style.transZoomMs / 1000);
+  const snapBeats = (sec: number, minBeats = 2) => {
+    const want = Math.max(1, Math.round(sec * FPS));
+    const beats = Math.max(minBeats, Math.ceil(want / beatFrames));
+    return beats * beatFrames;
+  };
+  const halfBeat = Math.max(1, Math.round(beatFrames / 2));
+  const snapHalf = (sec: number) => {
+    const want = Math.max(1, Math.round(sec * FPS));
+    return Math.max(halfBeat, Math.round(want / halfBeat) * halfBeat);
+  };
+  const transFlash = snapHalf(style.transFlashMs / 1000);
+  const transFadeOut = snapHalf((style.transFadeMs / 1000) * 0.55);
+  const transFadeIn  = snapHalf((style.transFadeMs / 1000) * 0.55);
+  const transZoom   = snapBeats(style.transZoomMs / 1000, 2);
+
+  // Reserve a 1-beat tail at the end of every captioned segment so the last
+  // sentence fully fades out BEFORE the next transition starts.
+  const tailFrames = beatFrames;
 
   const timeline: Segment[] = [];
   // HOOK
   const hookSlide = loaded[0];
-  const hookFrames = f(Math.min(style.hookDuration, Math.max(1.2, secondsPerSlide)));
+  const hookFrames = snapBeats(Math.min(style.hookDuration, Math.max(1.2, secondsPerSlide)), 2);
   const hookCaption = captions[0] ?? "";
-  timeline.push({ kind: "hook", slide: hookSlide, frames: hookFrames, caption: hookCaption });
+  timeline.push({
+    kind: "hook", slide: hookSlide, frames: hookFrames, caption: hookCaption,
+    phrases: splitPhrases(hookCaption), beatFrames, tailFrames,
+  });
 
   // MIDDLE scenes (slides 1..N-2 if >=3 slides, else fall through; closing handles last)
   const middleSlides = loaded.length >= 3 ? loaded.slice(1, -1) : loaded.slice(1);
@@ -564,10 +583,16 @@ export async function generateReel(
     }
     const isEven = i % 2 === 0;
     const sceneSecs = Math.max(1.5, secondsPerSlide);
+    const sceneCaption = captions[i + 1] ?? captions[0] ?? "";
+    const phrases = splitPhrases(sceneCaption);
+    // Make sure scene length fits at least (phrases × 2 beats) + tail.
+    const minBeats = Math.max(2, phrases.length * 2 + 1);
+    const sceneFrames = Math.max(snapBeats(sceneSecs, 2), minBeats * beatFrames);
     timeline.push({
       kind: "scene", slide,
-      frames: f(sceneSecs),
-      caption: captions[i + 1] ?? captions[0] ?? "",
+      frames: sceneFrames,
+      caption: sceneCaption,
+      phrases, beatFrames, tailFrames,
       mode: isEven ? "cinematic" : "energy",
       sceneIdx: i, totalScenes,
       grade: isEven ? style.colorGradeEven : style.colorGradeOdd,
@@ -579,7 +604,7 @@ export async function generateReel(
     timeline.push({ kind: "flash", frames: transFlash });
     timeline.push({
       kind: "closing", slide: closingSlide,
-      frames: f(style.closingDuration),
+      frames: snapBeats(style.closingDuration, 4),
       eventName: headline, brandColor: accent,
     });
   }
