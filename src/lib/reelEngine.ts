@@ -369,8 +369,10 @@ async function buildAudioTrack(musicBlob: Blob, durationSec: number) {
 
 // ─── timeline segments ─────────────────────────────────────────────────────
 type Segment =
-  | { kind: "hook";  slide: LoadedSlide; frames: number; caption: string }
+  | { kind: "hook";  slide: LoadedSlide; frames: number; caption: string;
+      phrases: string[]; beatFrames: number; tailFrames: number }
   | { kind: "scene"; slide: LoadedSlide; frames: number; caption: string;
+      phrases: string[]; beatFrames: number; tailFrames: number;
       mode: "cinematic" | "energy"; sceneIdx: number; totalScenes: number;
       grade: ColorGrade }
   | { kind: "flash"; frames: number }
