@@ -279,6 +279,9 @@ function drawAnimatedTitleAlpha(
   ctx.globalAlpha = prev * alpha;
   drawAnimatedTitle(ctx, text, progress, y, color, size);
   ctx.globalAlpha = prev;
+}
+
+
 
 function drawBrandBadge(ctx: CanvasRenderingContext2D, brand: string, progress: number, accent: string) {
   const fade = Math.min(progress * 5, 1);
