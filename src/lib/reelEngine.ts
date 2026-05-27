@@ -434,7 +434,7 @@ function renderSegmentFrame(
       drawTopGradient(ctx); drawBottomGradient(ctx);
       drawCinematicBars(ctx, 1);
       drawBrandBadge(ctx, headline, 1, accent);
-      drawAnimatedTitle(ctx, seg.caption, t, 1700, "#FFFFFF", 44);
+      drawPacedCaption(ctx, seg.phrases, f, seg.frames, seg.beatFrames, seg.tailFrames, 1700, "#FFFFFF", 44);
       drawProgressBar(ctx, seg.sceneIdx + 1, seg.totalScenes, t, accent);
       return;
     }
