@@ -409,7 +409,7 @@ function renderSegmentFrame(
       drawCinematicBars(ctx, Math.min(t * 3, 1));
       drawBrandBadge(ctx, headline, t, accent);
       drawGlow(ctx, W/2, 1800, 400, "123,47,190", 0.3 * t);
-      if (seg.caption) drawAnimatedTitle(ctx, seg.caption, t, 1680, "#FFFFFF", 46);
+      drawPacedCaption(ctx, seg.phrases, f, seg.frames, seg.beatFrames, seg.tailFrames, 1680, "#FFFFFF", 46);
       return;
     }
     case "scene": {
