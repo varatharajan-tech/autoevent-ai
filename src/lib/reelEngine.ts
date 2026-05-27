@@ -222,6 +222,64 @@ function drawAnimatedTitle(
   ctx.restore();
 }
 
+// Split a caption into sentence-level phrases for beat-paced display.
+function splitPhrases(text: string): string[] {
+  if (!text) return [];
+  const sentences = text.replace(/\s+/g, " ").trim()
+    .split(/(?<=[.!?…])\s+/)
+    .flatMap(s => s.length > 70 ? s.split(/,\s+/) : [s])
+    .map(s => s.trim()).filter(Boolean);
+  return sentences.length ? sentences : [text.trim()];
+}
+
+// Beat-paced caption: cycles through phrases on beat boundaries, with a
+// reserved tail (in frames) at the end so the last phrase fully fades out
+// BEFORE the next transition starts. Never cuts mid-fade.
+function drawPacedCaption(
+  ctx: CanvasRenderingContext2D,
+  phrases: string[],
+  frame: number,
+  totalFrames: number,
+  beatFrames: number,
+  tailFrames: number,
+  y: number, color: string, size: number,
+) {
+  if (!phrases.length) return;
+  const usable = Math.max(beatFrames, totalFrames - tailFrames);
+  // Allocate at least 2 beats per phrase, distributed to fill `usable`.
+  const minPhraseFrames = beatFrames * 2;
+  const maxPhrases = Math.max(1, Math.min(phrases.length, Math.floor(usable / minPhraseFrames)));
+  const phraseFrames = Math.floor(usable / maxPhrases);
+  // If we're in the tail buffer, fade out the last phrase smoothly.
+  if (frame >= usable) {
+    const tailT = Math.min(1, (frame - usable) / Math.max(1, tailFrames));
+    const fade = 1 - easeInOutCubic(tailT);
+    if (fade <= 0.02) return;
+    drawAnimatedTitleAlpha(ctx, phrases[maxPhrases - 1], 1, y, color, size, fade);
+    return;
+  }
+  const idx = Math.min(maxPhrases - 1, Math.floor(frame / phraseFrames));
+  const localFrame = frame - idx * phraseFrames;
+  const localT = phraseFrames <= 1 ? 1 : localFrame / phraseFrames;
+  // In-phrase envelope: fade-in 0–25%, hold, fade-out 80–100%.
+  let envelope = 1;
+  if (localT < 0.25) envelope = easeOutExpo(localT / 0.25);
+  else if (localT > 0.80) envelope = 1 - easeInOutCubic((localT - 0.80) / 0.20);
+  // `progress` arg of drawAnimatedTitle drives the slide-up; reuse early portion.
+  const slideProgress = Math.min(1, localT * 4);
+  drawAnimatedTitleAlpha(ctx, phrases[idx], slideProgress, y, color, size, envelope);
+}
+
+function drawAnimatedTitleAlpha(
+  ctx: CanvasRenderingContext2D, text: string, progress: number,
+  y: number, color: string, size: number, alpha: number,
+) {
+  if (!text || alpha <= 0) return;
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = prev * alpha;
+  drawAnimatedTitle(ctx, text, progress, y, color, size);
+  ctx.globalAlpha = prev;
+
 function drawBrandBadge(ctx: CanvasRenderingContext2D, brand: string, progress: number, accent: string) {
   const fade = Math.min(progress * 5, 1);
   ctx.save(); ctx.globalAlpha = fade;
