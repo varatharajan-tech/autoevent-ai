@@ -535,7 +535,7 @@ export async function generateReel(
   // Build timeline (beat-aware)
   const bpm = BPM_BY_MOOD[mood] ?? 90;
   const beatFrames = Math.max(1, Math.round((60 / bpm) * FPS));
-  const f = (sec: number) => Math.max(1, Math.round(sec * FPS));
+  
   const snapBeats = (sec: number, minBeats = 2) => {
     const want = Math.max(1, Math.round(sec * FPS));
     const beats = Math.max(minBeats, Math.ceil(want / beatFrames));
