@@ -7,7 +7,7 @@
 // (drawn frame-by-frame, looped to fill the scene). Soundtrack is layered via
 // AudioContext from generateMoodMusic().
 
-import { generateMoodMusic, type Mood } from "./reelMusic";
+import { generateMoodMusic, BPM_BY_MOOD, type Mood } from "./reelMusic";
 
 export type ReelPlatform = "instagram" | "youtube" | "facebook" | "twitter";
 
