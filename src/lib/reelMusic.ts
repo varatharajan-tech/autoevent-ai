@@ -69,6 +69,13 @@ const PRESETS: Record<Mood, {
   upbeat:    { root: 62, scale: [0, 2, 4, 7, 9, 12],   bpm: 110, voice: tri,  pad: false, drums: "soft" },
 };
 
+export const BPM_BY_MOOD: Record<Mood, number> = {
+  cinematic: PRESETS.cinematic.bpm,
+  energetic: PRESETS.energetic.bpm,
+  corporate: PRESETS.corporate.bpm,
+  upbeat:    PRESETS.upbeat.bpm,
+};
+
 export async function generateMoodMusic(mood: Mood, durationSec: number): Promise<Blob> {
   const p = PRESETS[mood];
   const total = Math.ceil(durationSec * SR);
