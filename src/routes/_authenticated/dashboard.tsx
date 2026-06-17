@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Plus, Image as ImageIcon, Calendar, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/dashboard")({ component: Dashboard });
+export const Route = createFileRoute("/_authenticated/dashboard")({ component: Dashboard });
 
 type Event = {
   id: string; name: string; description: string | null; status: string;
