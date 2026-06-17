@@ -22,7 +22,7 @@ const PLATFORMS = [
 ] as const;
 type PlatformId = typeof PLATFORMS[number]["id"];
 
-export const Route = createFileRoute("/events/$id")({ component: EventDetail });
+export const Route = createFileRoute("/_authenticated/events/$id")({ component: EventDetail });
 
 type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
