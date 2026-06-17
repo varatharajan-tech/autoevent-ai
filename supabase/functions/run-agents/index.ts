@@ -107,6 +107,8 @@ function parseJsonLoose(text: string): Record<string, unknown> {
 }
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get("Origin");
+  const corsHeaders = corsFor(origin);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -417,7 +419,7 @@ let postsCreated = 0;
     });
   } catch (e) {
     console.error("[run-agents] fatal", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }), {
+    return new Response(JSON.stringify({ error: "Something went wrong. Please try again." }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
