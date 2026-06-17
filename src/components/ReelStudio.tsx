@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Download, Film, Wand2, Image as ImageIcon, Music2, History, Trash2 } from "lucide-react";
+
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngine";
@@ -74,7 +75,19 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       .eq("event_id", eventId)
       .order("created_at", { ascending: false });
     if (error) { console.warn("[ReelStudio] history load failed", error); return; }
-    setHistory((data ?? []) as ReelRow[]);
+    const rows = (data ?? []) as ReelRow[];
+    // Replace stored public_urls with fresh signed URLs (bucket is private)
+    const signed = await Promise.all(rows.map(async (r) => {
+      try {
+        const { data: s } = await supabase.storage
+          .from("generated")
+          .createSignedUrl(r.storage_path, 60 * 60 * 24 * 7);
+        return { ...r, public_url: s?.signedUrl ?? null };
+      } catch {
+        return { ...r, public_url: null };
+      }
+    }));
+    setHistory(signed);
   }, [eventId]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
@@ -140,10 +153,12 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           .from("generated")
           .upload(path, blob, { contentType: blob.type, upsert: false });
         if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from("generated").getPublicUrl(path);
+        const { data: signed } = await supabase.storage
+          .from("generated")
+          .createSignedUrl(path, 60 * 60 * 24 * 7);
         const { error: insErr } = await supabase.from("generated_reels").insert({
           event_id: eventId, user_id: userId, storage_path: path,
-          public_url: pub?.publicUrl ?? null, platform, mood,
+          public_url: signed?.signedUrl ?? null, platform, mood,
           duration_sec: durationSec, mime_type: blob.type || `video/${ext}`,
           file_size: blob.size, slide_count: orderedAssets.length,
         });
@@ -152,13 +167,11 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
         toast.success("Saved to Reel History");
       } catch (saveErr) {
         console.error("[ReelStudio] save failed", saveErr);
-        const m = saveErr instanceof Error ? saveErr.message : String(saveErr);
-        toast.error(`Couldn't save to history: ${m}`);
+        toast.error("Couldn't save reel to history. Please try again.");
       }
     } catch (e) {
       console.error("[ReelStudio] generate failed", e);
-      const msg = e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
-      toast.error(`Reel failed: ${msg || "unknown error"}`);
+      toast.error("Reel generation failed. Please try again.");
     } finally {
       setBusy(false);
     }

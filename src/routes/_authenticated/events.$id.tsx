@@ -22,7 +22,7 @@ const PLATFORMS = [
 ] as const;
 type PlatformId = typeof PLATFORMS[number]["id"];
 
-export const Route = createFileRoute("/events/$id")({ component: EventDetail });
+export const Route = createFileRoute("/_authenticated/events/$id")({ component: EventDetail });
 
 type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
@@ -82,7 +82,7 @@ function EventDetail() {
   const togglePlatform = (id: PlatformId) =>
     setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
-  useEffect(() => { if (!loading && !user) nav({ to: "/auth" }); }, [loading, user, nav]);
+  // Auth guard handled by _authenticated layout
 
   const loadAll = useCallback(async () => {
     const [{ data: e }, { data: a }, { data: p }, { data: l }] = await Promise.all([
@@ -155,9 +155,9 @@ function EventDetail() {
             URL.revokeObjectURL(item.previewUrl);
           }, 800);
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "Upload failed";
-          setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "error", error: msg } : p));
-          toast.error(`${item.file.name}: ${msg}`);
+          console.error("[upload] failed", item.file.name, err);
+          setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "error", error: "Upload failed" } : p));
+          toast.error(`${item.file.name}: Upload failed. Please try again.`);
         }
       }
     };
@@ -185,7 +185,8 @@ function EventDetail() {
       console.log("[AutoEvent] Agent output", data);
       toast.success(`Agents finished — ${data?.posts_created ?? 0} posts created`);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Agent run failed");
+      console.error("[run-agents] failed", err);
+      toast.error("Something went wrong while running agents. Please try again.");
     } finally {
       setRunning(false);
       loadAll();
@@ -459,7 +460,7 @@ function PostCard({ post, eventId, eventName, brandColor }: { post: Post; eventI
       .update({ caption, hashtags: tags })
       .eq("id", post.id);
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { console.error("[post.save]", error); toast.error("Couldn't save changes. Please try again."); return; }
     toast.success(`${post.platform} post updated`);
     setEditing(false);
   }
@@ -474,7 +475,8 @@ function PostCard({ post, eventId, eventName, brandColor }: { post: Post; eventI
       toast.success(`${post.platform} regenerated`);
       setEditing(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Regenerate failed");
+      console.error("[post.regenerate]", e);
+      toast.error("Something went wrong. Please try again.");
     } finally {
       setRegenerating(false);
     }
@@ -493,7 +495,8 @@ function PostCard({ post, eventId, eventName, brandColor }: { post: Post; eventI
       URL.revokeObjectURL(url);
       toast.success("Designed post downloaded");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Download failed");
+      console.error("[download.designed]", e);
+      toast.error("Download failed. Please try again.");
     }
   }
 
@@ -628,7 +631,8 @@ async function downloadPostZip(post: Post, eventName: string, designedUrl?: stri
     URL.revokeObjectURL(url);
     toast.success(`Downloaded ${post.platform} ZIP`);
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : "Download failed");
+    console.error("[zip.post]", e);
+    toast.error("Download failed. Please try again.");
   }
 }
 
@@ -687,7 +691,8 @@ function PlatformPosts({ posts, eventId, eventName, brandColor }: { posts: Post[
       URL.revokeObjectURL(url);
       toast.success(`Downloaded ${posts.length} posts`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Download failed");
+      console.error("[zip.all]", e);
+      toast.error("Download failed. Please try again.");
     } finally {
       setZipping(false);
     }
@@ -755,7 +760,7 @@ function MetricsEditor({ post }: { post: Post }) {
       .update({ metrics: m, engagement_score: next })
       .eq("id", post.id);
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { console.error("[metrics.save]", error); toast.error("Couldn't save metrics. Please try again."); return; }
     toast.success("Metrics saved — AI will learn from this");
     setOpen(false);
   }

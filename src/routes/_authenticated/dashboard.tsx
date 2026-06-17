@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Plus, Image as ImageIcon, Calendar, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/dashboard")({ component: Dashboard });
+export const Route = createFileRoute("/_authenticated/dashboard")({ component: Dashboard });
 
 type Event = {
   id: string; name: string; description: string | null; status: string;
@@ -28,9 +28,7 @@ function Dashboard() {
   const [color, setColor] = useState("#c2410c");
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    if (!loading && !user) nav({ to: "/auth" });
-  }, [loading, user, nav]);
+  // Auth guard handled by _authenticated layout
 
   useEffect(() => {
     if (!user) return;
@@ -52,7 +50,7 @@ function Dashboard() {
       user_id: user.id, name, description: desc || null, brand_color: color,
     }).select().single();
     setCreating(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { console.error("[dashboard] create event failed", error); toast.error("Couldn't create event. Please try again."); return; }
     setOpen(false); setName(""); setDesc("");
     nav({ to: "/events/$id", params: { id: data.id } });
   }
