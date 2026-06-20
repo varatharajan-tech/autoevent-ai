@@ -40,8 +40,9 @@ const AUDIENCES = [
 ] as const;
 type AudienceId = typeof AUDIENCES[number]["id"];
 
-const MAX_DIM = 2000;
-const COMPRESS_THRESHOLD = 1.5 * 1024 * 1024; // 1.5MB
+const MAX_DIM = 1920;
+const COMPRESS_THRESHOLD = 300 * 1024; // skip files already under 300KB
+const VIDEO_WARN_BYTES = 100 * 1024 * 1024; // warn for videos > 100MB
 
 async function compressImage(file: File): Promise<File> {
   if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
@@ -56,11 +57,28 @@ async function compressImage(file: File): Promise<File> {
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
     ctx.drawImage(bitmap, 0, 0, w, h);
-    const blob: Blob | null = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.85));
+    const blob: Blob | null = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.8));
     bitmap.close?.();
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.(png|webp|heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
   } catch { return file; }
+}
+
+// XHR PUT to a Supabase signed upload URL so we get real upload.onprogress events.
+function uploadWithProgress(signedUrl: string, file: File | Blob, contentType: string, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", signedUrl, true);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.setRequestHeader("x-upsert", "false");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.onabort = () => reject(new Error("Aborted"));
+    xhr.send(file);
+  });
 }
 
 function EventDetail() {
