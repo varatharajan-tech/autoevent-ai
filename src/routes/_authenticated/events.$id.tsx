@@ -29,7 +29,7 @@ type Asset = { id: string; storage_path: string; public_url: string | null; qual
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
 type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
 type Log = { id: string; agent: string; level: string; message: string; created_at: string };
-type PendingUpload = { id: string; name: string; previewUrl: string; status: "uploading" | "done" | "error"; error?: string };
+type PendingUpload = { id: string; name: string; previewUrl: string; status: "queued" | "uploading" | "processing" | "done" | "error"; progress: number; error?: string };
 
 const AUDIENCES = [
   { id: "general", label: "General" },
