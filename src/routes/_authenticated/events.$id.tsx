@@ -29,7 +29,7 @@ type Asset = { id: string; storage_path: string; public_url: string | null; qual
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
 type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
 type Log = { id: string; agent: string; level: string; message: string; created_at: string };
-type PendingUpload = { id: string; name: string; previewUrl: string; status: "uploading" | "done" | "error"; error?: string };
+type PendingUpload = { id: string; name: string; previewUrl: string; status: "queued" | "uploading" | "processing" | "done" | "error"; progress: number; error?: string };
 
 const AUDIENCES = [
   { id: "general", label: "General" },
@@ -40,8 +40,9 @@ const AUDIENCES = [
 ] as const;
 type AudienceId = typeof AUDIENCES[number]["id"];
 
-const MAX_DIM = 2000;
-const COMPRESS_THRESHOLD = 1.5 * 1024 * 1024; // 1.5MB
+const MAX_DIM = 1920;
+const COMPRESS_THRESHOLD = 300 * 1024; // skip files already under 300KB
+const VIDEO_WARN_BYTES = 100 * 1024 * 1024; // warn for videos > 100MB
 
 async function compressImage(file: File): Promise<File> {
   if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
@@ -56,11 +57,28 @@ async function compressImage(file: File): Promise<File> {
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
     ctx.drawImage(bitmap, 0, 0, w, h);
-    const blob: Blob | null = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.85));
+    const blob: Blob | null = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.8));
     bitmap.close?.();
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.(png|webp|heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
   } catch { return file; }
+}
+
+// XHR PUT to a Supabase signed upload URL so we get real upload.onprogress events.
+function uploadWithProgress(signedUrl: string, file: File | Blob, contentType: string, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", signedUrl, true);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.setRequestHeader("x-upsert", "false");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.onabort = () => reject(new Error("Aborted"));
+    xhr.send(file);
+  });
 }
 
 function EventDetail() {
@@ -115,41 +133,62 @@ function EventDetail() {
     const list = Array.from(files).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (list.length === 0) return;
 
-    // Instant previews
+    // F8 — warn about large videos before queuing
+    const bigVideos = list.filter(f => f.type.startsWith("video/") && f.size > VIDEO_WARN_BYTES);
+    if (bigVideos.length > 0) {
+      const names = bigVideos.map(f => `${f.name} (${(f.size / 1024 / 1024).toFixed(0)}MB)`).join(", ");
+      const ok = window.confirm(`Large video file${bigVideos.length > 1 ? "s" : ""}: ${names}\n\nThis may take a while to upload. Continue?`);
+      if (!ok) return;
+    }
+
+    // F4 — instant previews; F3 — initial state Queued, with progress
     const items: (PendingUpload & { file: File })[] = list.map(file => ({
       id: crypto.randomUUID(),
       name: file.name,
       previewUrl: URL.createObjectURL(file),
-      status: "uploading",
+      status: "queued",
+      progress: 0,
       file,
     }));
     setPending(prev => [...items.map(({ file: _f, ...rest }) => rest), ...prev]);
     setUploading(true);
 
+    type UploadResult = { path: string; isVideo: boolean; filename: string; signedUrl: string | null };
+    const completed: UploadResult[] = [];
+
     const CONCURRENCY = 4;
     let cursor = 0;
-    let success = 0;
 
     const worker = async () => {
       while (cursor < items.length) {
         const item = items[cursor++];
         try {
           const isVideo = item.file.type.startsWith("video/");
+
+          // F3 — Processing state during compression
+          setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "processing" } : p));
           const prepared = isVideo ? item.file : await compressImage(item.file);
+
           const path = `${user.id}/${ev.id}/${crypto.randomUUID()}-${prepared.name}`;
-          const { error: upErr } = await supabase.storage.from("event-media").upload(path, prepared, { contentType: prepared.type });
-          if (upErr) throw upErr;
-          const { data: signed } = await supabase.storage.from("event-media").createSignedUrl(path, 60 * 60 * 24 * 7);
-          const { error } = await supabase.from("assets").insert({
-            event_id: ev.id, user_id: user.id, storage_path: path,
-            public_url: signed?.signedUrl ?? null,
-            kind: isVideo ? "video" : "image",
-            filename: item.file.name,
+
+          // F3 — real per-file progress via XHR PUT to a signed upload URL
+          setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "uploading", progress: 0 } : p));
+          const { data: signedUp, error: signErr } = await supabase.storage
+            .from("event-media").createSignedUploadUrl(path);
+          if (signErr || !signedUp) throw signErr ?? new Error("Could not get upload URL");
+
+          await uploadWithProgress(signedUp.signedUrl, prepared, prepared.type, (pct) => {
+            setPending(prev => prev.map(p => p.id === item.id ? { ...p, progress: pct } : p));
           });
-          if (error) throw error;
-          success++;
-          setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "done" } : p));
-          // Drop completed entry shortly after — realtime will surface the asset
+
+          const { data: signedRead } = await supabase.storage
+            .from("event-media").createSignedUrl(path, 60 * 60 * 24 * 7);
+
+          completed.push({
+            path, isVideo, filename: item.file.name, signedUrl: signedRead?.signedUrl ?? null,
+          });
+
+          setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "done", progress: 100 } : p));
           setTimeout(() => {
             setPending(prev => prev.filter(p => p.id !== item.id));
             URL.revokeObjectURL(item.previewUrl);
@@ -164,13 +203,25 @@ function EventDetail() {
 
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 
-    if (success > 0) {
-      await supabase.from("events").update({ asset_count: assets.length + success }).eq("id", ev.id);
-      toast.success(`Uploaded ${success} photo${success > 1 ? "s" : ""}`);
+    // F6 — single batched DB insert for every successful upload
+    if (completed.length > 0) {
+      const rows = completed.map(c => ({
+        event_id: ev.id, user_id: user.id, storage_path: c.path,
+        public_url: c.signedUrl, kind: c.isVideo ? "video" : "image", filename: c.filename,
+      }));
+      const { error: insErr } = await supabase.from("assets").insert(rows);
+      if (insErr) {
+        console.error("[upload] batch insert failed", insErr);
+        toast.error("Some uploads couldn't be saved. Please try again.");
+      } else {
+        await supabase.from("events").update({ asset_count: assets.length + completed.length }).eq("id", ev.id);
+        toast.success(`Uploaded ${completed.length} item${completed.length > 1 ? "s" : ""}`);
+      }
     }
     setUploading(false);
     loadAll();
   }
+
 
   async function runAgents() {
     if (!ev) return;
@@ -276,7 +327,7 @@ function EventDetail() {
           <div className="mb-6 bg-card border border-border/60 rounded-xl p-4 shadow-soft">
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Uploading {pending.filter(p => p.status === "uploading").length} of {pending.length}
+                Uploading {pending.filter(p => p.status === "uploading" || p.status === "processing" || p.status === "queued").length} of {pending.length}
               </p>
             </div>
             <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-2">
@@ -284,10 +335,16 @@ function EventDetail() {
                 <div key={p.id} className="relative aspect-square rounded-md overflow-hidden bg-muted border border-border/60">
                   <img src={p.previewUrl} alt={p.name} className="size-full object-cover" />
                   <div className="absolute inset-0 bg-ink/40 grid place-items-center">
-                    {p.status === "uploading" && <Loader2 className="size-5 text-paper animate-spin" />}
+                    {(p.status === "queued" || p.status === "processing") && <Loader2 className="size-5 text-paper animate-spin" />}
+                    {p.status === "uploading" && (
+                      <div className="text-paper text-xs font-mono font-bold drop-shadow">{p.progress}%</div>
+                    )}
                     {p.status === "done" && <CheckCircle2 className="size-5 text-success" />}
                     {p.status === "error" && <AlertCircle className="size-5 text-destructive" />}
                   </div>
+                  {p.status === "uploading" && (
+                    <div className="absolute bottom-0 left-0 h-1 bg-primary transition-all" style={{ width: `${p.progress}%` }} />
+                  )}
                 </div>
               ))}
             </div>
