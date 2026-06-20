@@ -350,14 +350,6 @@ function EventDetail() {
             </div>
           </div>
         )}
-                    {p.status === "done" && <CheckCircle2 className="size-5 text-success" />}
-                    {p.status === "error" && <AlertCircle className="size-5 text-destructive" />}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {assets.length === 0 && pending.length === 0 ? (
           <div
