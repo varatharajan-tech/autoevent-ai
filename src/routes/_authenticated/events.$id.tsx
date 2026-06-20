@@ -327,7 +327,7 @@ function EventDetail() {
           <div className="mb-6 bg-card border border-border/60 rounded-xl p-4 shadow-soft">
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Uploading {pending.filter(p => p.status === "uploading").length} of {pending.length}
+                Uploading {pending.filter(p => p.status === "uploading" || p.status === "processing" || p.status === "queued").length} of {pending.length}
               </p>
             </div>
             <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-2">
@@ -335,7 +335,21 @@ function EventDetail() {
                 <div key={p.id} className="relative aspect-square rounded-md overflow-hidden bg-muted border border-border/60">
                   <img src={p.previewUrl} alt={p.name} className="size-full object-cover" />
                   <div className="absolute inset-0 bg-ink/40 grid place-items-center">
-                    {p.status === "uploading" && <Loader2 className="size-5 text-paper animate-spin" />}
+                    {(p.status === "queued" || p.status === "processing") && <Loader2 className="size-5 text-paper animate-spin" />}
+                    {p.status === "uploading" && (
+                      <div className="text-paper text-xs font-mono font-bold drop-shadow">{p.progress}%</div>
+                    )}
+                    {p.status === "done" && <CheckCircle2 className="size-5 text-success" />}
+                    {p.status === "error" && <AlertCircle className="size-5 text-destructive" />}
+                  </div>
+                  {p.status === "uploading" && (
+                    <div className="absolute bottom-0 left-0 h-1 bg-primary transition-all" style={{ width: `${p.progress}%` }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
                     {p.status === "done" && <CheckCircle2 className="size-5 text-success" />}
                     {p.status === "error" && <AlertCircle className="size-5 text-destructive" />}
                   </div>
