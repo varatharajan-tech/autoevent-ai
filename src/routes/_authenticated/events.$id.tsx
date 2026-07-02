@@ -801,22 +801,63 @@ function computeScore(m: Metrics): number {
 }
 
 function MetricsEditor({ post }: { post: Post }) {
-  const m: Metrics = post.metrics ?? { likes: 0, shares: 0, reach: 0, comments: 0 };
+  const initial: Metrics = post.metrics ?? { likes: 0, shares: 0, reach: 0, comments: 0 };
+  const [open, setOpen] = useState(false);
+  const [m, setM] = useState<Metrics>(initial);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setM(post.metrics ?? { likes: 0, shares: 0, reach: 0, comments: 0 }); }, [post.metrics]);
+
   const score = post.engagement_score ?? computeScore(m);
+
+  async function save() {
+    setSaving(true);
+    const next = computeScore(m);
+    const { error } = await supabase
+      .from("generated_posts")
+      .update({ metrics: m, engagement_score: next })
+      .eq("id", post.id);
+    setSaving(false);
+    if (error) { console.error("[metrics.save]", error); toast.error("Couldn't save metrics. Please try again."); return; }
+    toast.success("Metrics saved — AI will learn from this");
+    setOpen(false);
+  }
 
   return (
     <div className="mt-3 border-t border-border/60 pt-3">
-      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-        <span className="inline-flex items-center gap-1"><Heart className="size-3.5" /> {m.likes}</span>
-        <span className="inline-flex items-center gap-1"><MessageCircle className="size-3.5" /> {m.comments}</span>
-        <span className="inline-flex items-center gap-1"><Share2 className="size-3.5" /> {m.shares}</span>
-        <span className="inline-flex items-center gap-1"><Eye className="size-3.5" /> {m.reach}</span>
-        <span className="inline-flex items-center gap-1 font-medium text-foreground">Score {Math.round(score)}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+          <span className="inline-flex items-center gap-1"><Heart className="size-3.5" /> {m.likes}</span>
+          <span className="inline-flex items-center gap-1"><MessageCircle className="size-3.5" /> {m.comments}</span>
+          <span className="inline-flex items-center gap-1"><Share2 className="size-3.5" /> {m.shares}</span>
+          <span className="inline-flex items-center gap-1"><Eye className="size-3.5" /> {m.reach}</span>
+          <span className="inline-flex items-center gap-1 font-medium text-foreground">Score {Math.round(score)}</span>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(o => !o)}>
+          {open ? "Close" : "Track"}
+        </Button>
       </div>
+      {open && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {(["likes","comments","shares","reach"] as const).map((k) => (
+            <label key={k} className="text-xs space-y-1">
+              <span className="text-muted-foreground capitalize">{k}</span>
+              <Input
+                type="number" min={0}
+                value={m[k]}
+                onChange={(e) => setM(prev => ({ ...prev, [k]: Math.max(0, Number(e.target.value) || 0) }))}
+              />
+            </label>
+          ))}
+          <div className="col-span-2 flex justify-end">
+            <Button size="sm" onClick={save} disabled={saving}>
+              {saving ? <Loader2 className="size-4 animate-spin mr-1" /> : <Save className="size-4 mr-1" />} Save metrics
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
 
 function InsightsDashboard({ posts }: { posts: Post[] }) {
   if (posts.length === 0) return <p className="text-muted-foreground text-sm py-12 text-center">Run agents to see insights.</p>;
@@ -895,7 +936,7 @@ function InsightsDashboard({ posts }: { posts: Post[] }) {
               <div className="font-display text-2xl">{Math.round(avgScore)}/100</div>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-4">Real metrics on each post feed the AI self-improvement loop. Top posts inform the next generation.</p>
+          <p className="text-xs text-muted-foreground mt-4">Track real metrics on each post to feed the AI self-improvement loop. Top posts inform the next generation.</p>
         </div>
       </div>
 
