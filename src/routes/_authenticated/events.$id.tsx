@@ -895,7 +895,7 @@ function InsightsDashboard({ posts }: { posts: Post[] }) {
               <div className="font-display text-2xl">{Math.round(avgScore)}/100</div>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-4">Track real metrics on each post to feed the AI self-improvement loop. Top posts inform the next generation.</p>
+          <p className="text-xs text-muted-foreground mt-4">Real metrics on each post feed the AI self-improvement loop. Top posts inform the next generation.</p>
         </div>
       </div>
 
