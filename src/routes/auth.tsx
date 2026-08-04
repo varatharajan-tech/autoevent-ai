@@ -10,21 +10,38 @@ import { Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
+  validateSearch: (s: Record<string, unknown>): { next?: string } =>
+    typeof s['next'] === "string" ? { next: s['next'] } : {},
   head: () => ({ meta: [{ title: "Sign in — AutoEvent AI" }] }),
 });
 
+/** Only same-origin relative paths are allowed as a post-login destination. */
+function safeNext(next: string | undefined): string | null {
+  if (!next) return null;
+  if (!next.startsWith("/") || next.startsWith("//")) return null;
+  return next;
+}
+
 function AuthPage() {
   const nav = useNavigate();
+  const { next } = Route.useSearch();
+  const dest = safeNext(next);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function goNext() {
+    if (dest) window.location.href = dest;
+    else nav({ to: "/dashboard" });
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) nav({ to: "/dashboard" });
+      if (session) goNext();
     });
-  }, [nav]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav, dest]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,15 +50,15 @@ function AuthPage() {
       if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email, password,
-          options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+          options: { emailRedirectTo: `${window.location.origin}${dest ?? "/dashboard"}` },
         });
         if (error) throw error;
         toast.success("Welcome aboard!");
-        nav({ to: "/dashboard" });
+        goNext();
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        nav({ to: "/dashboard" });
+        goNext();
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
@@ -51,9 +68,12 @@ function AuthPage() {
   }
 
   async function google() {
-    const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/dashboard" });
+    const r = await lovable.auth.signInWithOAuth("google", {
+      redirect_uri: window.location.origin + (dest ?? "/dashboard"),
+    });
     if (r.error) toast.error("Google sign-in failed");
   }
+
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-paper">
