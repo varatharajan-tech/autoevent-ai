@@ -96,7 +96,7 @@ function EventDetail() {
   const [drag, setDrag] = useState(false);
   const [selected, setSelected] = useState<PlatformId[]>(["instagram", "linkedin", "twitter", "facebook"]);
   const [audience, setAudience] = useState<AudienceId>("general");
-  const [pending, setPending] = useState<PendingUpload[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const togglePlatform = (id: PlatformId) =>
