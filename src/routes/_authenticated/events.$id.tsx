@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Upload, Sparkles, Image as ImageIcon, Star, Download, Loader2, CheckCircle2, AlertCircle, Instagram, Linkedin, Twitter, Facebook, Pencil, Save, X, RefreshCw, Clock, TrendingUp, Heart, Share2, Eye, MessageCircle } from "lucide-react";
+import { ArrowLeft, Upload, Sparkles, Image as ImageIcon, Star, Download, Loader2, CheckCircle2, AlertCircle, Instagram, Linkedin, Twitter, Facebook, Pencil, Save, X, RefreshCw, Clock, TrendingUp, Heart, Share2, Eye, MessageCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { DeleteEventDialog } from "@/components/DeleteEventDialog";
+
 import JSZip from "jszip";
 import { renderDesignedPost, formatForPlatform, type DesignFormat } from "@/lib/designTemplate";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -95,6 +97,8 @@ function EventDetail() {
   const [selected, setSelected] = useState<PlatformId[]>(["instagram", "linkedin", "twitter", "facebook"]);
   const [audience, setAudience] = useState<AudienceId>("general");
   const [pending, setPending] = useState<PendingUpload[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   const togglePlatform = (id: PlatformId) =>
@@ -274,8 +278,21 @@ function EventDetail() {
               {running ? <Loader2 className="size-4 animate-spin mr-1" /> : <Sparkles className="size-4 mr-1" />}
               Run agents
             </Button>
+            <Button variant="outline" onClick={() => setConfirmDelete(true)}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10">
+              <Trash2 className="size-4 mr-1" /> Delete event
+            </Button>
           </div>
         </div>
+
+        <DeleteEventDialog
+          eventId={ev.id}
+          eventName={ev.name}
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          onDeleted={() => nav({ to: "/dashboard" })}
+        />
+
 
         <div className="mb-8 bg-card border border-border/60 rounded-xl p-5 shadow-soft">
           <div className="flex items-center justify-between flex-wrap gap-3">

@@ -8,8 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Image as ImageIcon, Calendar, ArrowRight } from "lucide-react";
+import { Plus, Image as ImageIcon, Calendar, ArrowRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { DeleteEventDialog } from "@/components/DeleteEventDialog";
+
 
 export const Route = createFileRoute("/_authenticated/dashboard")({ component: Dashboard });
 
@@ -27,6 +29,8 @@ function Dashboard() {
   const [desc, setDesc] = useState("");
   const [color, setColor] = useState("#c2410c");
   const [creating, setCreating] = useState(false);
+  const [toDelete, setToDelete] = useState<Event | null>(null);
+
 
   // Auth guard handled by _authenticated layout
 
@@ -97,23 +101,44 @@ function Dashboard() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {events.map((ev) => (
-              <Link key={ev.id} to="/events/$id" params={{ id: ev.id }}
-                className="bg-card border border-border/60 rounded-xl p-6 shadow-soft hover:shadow-lift transition-shadow group">
-                <div className="flex items-center justify-between">
-                  <div className="size-3 rounded-full" style={{ background: ev.brand_color }} />
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground capitalize">{ev.status}</span>
-                </div>
-                <h3 className="font-display text-2xl mt-4 line-clamp-1">{ev.name}</h3>
-                <p className="text-sm text-muted-foreground mt-1 line-clamp-2 min-h-[2.5rem]">{ev.description || "No description"}</p>
-                <div className="mt-6 pt-4 border-t border-border/60 flex justify-between text-sm">
-                  <span className="flex items-center gap-1 text-muted-foreground"><ImageIcon className="size-3.5" /> {ev.asset_count} assets</span>
-                  <span className="text-primary font-medium flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">Open <ArrowRight className="size-3.5" /></span>
-                </div>
-              </Link>
+              <div key={ev.id} className="relative group">
+                <button
+                  type="button"
+                  aria-label={`Delete ${ev.name}`}
+                  onClick={() => setToDelete(ev)}
+                  className="absolute top-3 right-3 z-10 rounded-md p-1.5 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-opacity"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+                <Link to="/events/$id" params={{ id: ev.id }}
+                  className="block bg-card border border-border/60 rounded-xl p-6 shadow-soft hover:shadow-lift transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <div className="size-3 rounded-full" style={{ background: ev.brand_color }} />
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground capitalize group-hover:opacity-0 transition-opacity">{ev.status}</span>
+                  </div>
+                  <h3 className="font-display text-2xl mt-4 line-clamp-1">{ev.name}</h3>
+                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2 min-h-[2.5rem]">{ev.description || "No description"}</p>
+                  <div className="mt-6 pt-4 border-t border-border/60 flex justify-between text-sm">
+                    <span className="flex items-center gap-1 text-muted-foreground"><ImageIcon className="size-3.5" /> {ev.asset_count} assets</span>
+                    <span className="text-primary font-medium flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">Open <ArrowRight className="size-3.5" /></span>
+                  </div>
+                </Link>
+              </div>
             ))}
+
           </div>
         )}
       </main>
+      {toDelete && (
+        <DeleteEventDialog
+          eventId={toDelete.id}
+          eventName={toDelete.name}
+          open={!!toDelete}
+          onOpenChange={(o) => { if (!o) setToDelete(null); }}
+          onDeleted={() => setEvents((prev) => prev.filter((e) => e.id !== toDelete.id))}
+        />
+      )}
+
     </div>
   );
 }
