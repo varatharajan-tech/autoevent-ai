@@ -278,8 +278,21 @@ function EventDetail() {
               {running ? <Loader2 className="size-4 animate-spin mr-1" /> : <Sparkles className="size-4 mr-1" />}
               Run agents
             </Button>
+            <Button variant="outline" onClick={() => setConfirmDelete(true)}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10">
+              <Trash2 className="size-4 mr-1" /> Delete event
+            </Button>
           </div>
         </div>
+
+        <DeleteEventDialog
+          eventId={ev.id}
+          eventName={ev.name}
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          onDeleted={() => nav({ to: "/dashboard" })}
+        />
+
 
         <div className="mb-8 bg-card border border-border/60 rounded-xl p-5 shadow-soft">
           <div className="flex items-center justify-between flex-wrap gap-3">
