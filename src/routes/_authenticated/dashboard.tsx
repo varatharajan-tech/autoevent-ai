@@ -129,6 +129,16 @@ function Dashboard() {
           </div>
         )}
       </main>
+      {toDelete && (
+        <DeleteEventDialog
+          eventId={toDelete.id}
+          eventName={toDelete.name}
+          open={!!toDelete}
+          onOpenChange={(o) => { if (!o) setToDelete(null); }}
+          onDeleted={() => setEvents((prev) => prev.filter((e) => e.id !== toDelete.id))}
+        />
+      )}
+
     </div>
   );
 }
