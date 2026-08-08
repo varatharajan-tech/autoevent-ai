@@ -115,10 +115,25 @@ function EventDetail() {
     ]);
     setEv(e as Event | null);
     if (e && (e as Event).audience) setAudience(((e as Event).audience as AudienceId) ?? "general");
-    setAssets((a ?? []) as Asset[]);
-    setPosts((p ?? []) as Post[]);
+
+    // Mint fresh signed URLs from the permanent storage paths on every load,
+    // so nothing ever depends on a stored (expiring) URL.
+    const rawAssets = (a ?? []) as Asset[];
+    const rawPosts = (p ?? []) as Post[];
+    const paths = Array.from(new Set([
+      ...rawAssets.map(x => x.storage_path).filter(Boolean),
+      ...rawPosts.map(x => x.storage_path || extractStoragePath(x.image_url, "event-media")).filter(Boolean),
+    ]));
+    const signed = await getSignedUrls("event-media", paths);
+
+    setAssets(rawAssets.map(x => ({ ...x, public_url: signed[x.storage_path] ?? null })));
+    setPosts(rawPosts.map(x => {
+      const path = x.storage_path || extractStoragePath(x.image_url, "event-media");
+      return { ...x, image_url: signed[path] ?? null };
+    }));
     setLogs((l ?? []) as Log[]);
   }, [id]);
+
 
   useEffect(() => {
     if (!user) return;
