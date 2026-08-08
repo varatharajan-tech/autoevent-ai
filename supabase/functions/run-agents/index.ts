@@ -208,14 +208,13 @@ Deno.serve(async (req) => {
           }).eq("id", a.id);
           await log("media", `Scored ${a.filename}: ${parsed.quality ?? "?"}/10`);
         } catch (e) {
-          // Fallback: still mark analyzed with neutral score so pipeline proceeds
-          const { data: signed } = await admin.storage.from("event-media").createSignedUrl(a.storage_path, 60 * 60 * 24 * 7);
           await admin.from("assets").update({
             quality_score: 5,
             ai_summary: `Moment from ${ev.name}`,
             analyzed: true,
-            public_url: signed?.signedUrl ?? a.public_url,
+            public_url: null,
           }).eq("id", a.id);
+
           await log("media", `Fallback scored ${a.filename}: ${(e as Error).message}`, "warn");
         }
       }
