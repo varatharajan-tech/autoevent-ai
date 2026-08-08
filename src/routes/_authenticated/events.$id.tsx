@@ -174,7 +174,7 @@ function EventDetail() {
     setPending(prev => [...items.map(({ file: _f, ...rest }) => rest), ...prev]);
     setUploading(true);
 
-    type UploadResult = { path: string; isVideo: boolean; filename: string; signedUrl: string | null };
+    type UploadResult = { path: string; isVideo: boolean; filename: string };
     const completed: UploadResult[] = [];
 
     const CONCURRENCY = 4;
