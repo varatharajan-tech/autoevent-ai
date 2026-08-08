@@ -395,7 +395,7 @@ let postsCreated = 0;
           event_id, user_id: user.id, source_asset_id: pick.id,
           platform, format: meta.format,
           caption: capJson.caption, hashtags: capJson.hashtags,
-          image_url: pick.public_url, storage_path: null,
+          image_url: null, storage_path: pick.storage_path, storage_bucket: "event-media",
           audience,
           best_time: meta.bestTime,
           predicted_engagement: capJson.predicted_engagement,
