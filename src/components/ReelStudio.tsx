@@ -147,15 +147,13 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           .from("generated")
           .upload(path, blob, { contentType: blob.type, upsert: false });
         if (upErr) throw upErr;
-        const { data: signed } = await supabase.storage
-          .from("generated")
-          .createSignedUrl(path, 60 * 60 * 24 * 7);
         const { error: insErr } = await supabase.from("generated_reels").insert({
           event_id: eventId, user_id: userId, storage_path: path,
-          public_url: signed?.signedUrl ?? null, platform, mood,
+          public_url: null, platform, mood,
           duration_sec: durationSec, mime_type: blob.type || `video/${ext}`,
           file_size: blob.size, slide_count: orderedAssets.length,
         });
+
         if (insErr) throw insErr;
         await loadHistory();
         toast.success("Saved to Reel History");
