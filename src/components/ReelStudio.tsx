@@ -76,19 +76,11 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       .order("created_at", { ascending: false });
     if (error) { console.warn("[ReelStudio] history load failed", error); return; }
     const rows = (data ?? []) as ReelRow[];
-    // Replace stored public_urls with fresh signed URLs (bucket is private)
-    const signed = await Promise.all(rows.map(async (r) => {
-      try {
-        const { data: s } = await supabase.storage
-          .from("generated")
-          .createSignedUrl(r.storage_path, 60 * 60 * 24 * 7);
-        return { ...r, public_url: s?.signedUrl ?? null };
-      } catch {
-        return { ...r, public_url: null };
-      }
-    }));
-    setHistory(signed);
+    // Signed URLs are minted fresh from the permanent storage path on every load.
+    const signed = await getSignedUrls("generated", rows.map(r => r.storage_path));
+    setHistory(rows.map(r => ({ ...r, public_url: signed[r.storage_path] ?? null })));
   }, [eventId]);
+
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
