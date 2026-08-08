@@ -224,8 +224,10 @@ function EventDetail() {
     if (completed.length > 0) {
       const rows = completed.map(c => ({
         event_id: ev.id, user_id: user.id, storage_path: c.path,
-        public_url: c.signedUrl, kind: c.isVideo ? "video" : "image", filename: c.filename,
+        storage_bucket: "event-media", public_url: null,
+        kind: c.isVideo ? "video" : "image", filename: c.filename,
       }));
+
       const { error: insErr } = await supabase.from("assets").insert(rows);
       if (insErr) {
         console.error("[upload] batch insert failed", insErr);
