@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
             scene: parsed.scene ?? null,
             ai_summary: parsed.summary ?? `Moment from ${ev.name}`,
             analyzed: true,
-            public_url: publicUrl,
+            public_url: null,
           }).eq("id", a.id);
           await log("media", `Scored ${a.filename}: ${parsed.quality ?? "?"}/10`);
         } catch (e) {
