@@ -15,6 +15,8 @@ import JSZip from "jszip";
 import { renderDesignedPost, formatForPlatform, type DesignFormat } from "@/lib/designTemplate";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { ReelStudio } from "@/components/ReelStudio";
+import { extractStoragePath, getSignedUrls } from "@/lib/storage";
+
 
 const PLATFORMS = [
   { id: "instagram", label: "Instagram", Icon: Instagram },
