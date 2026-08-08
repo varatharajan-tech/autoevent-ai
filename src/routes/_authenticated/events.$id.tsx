@@ -15,6 +15,8 @@ import JSZip from "jszip";
 import { renderDesignedPost, formatForPlatform, type DesignFormat } from "@/lib/designTemplate";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { ReelStudio } from "@/components/ReelStudio";
+import { extractStoragePath, getSignedUrls } from "@/lib/storage";
+
 
 const PLATFORMS = [
   { id: "instagram", label: "Instagram", Icon: Instagram },
@@ -29,7 +31,7 @@ export const Route = createFileRoute("/_authenticated/events/$id")({ component: 
 type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
-type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
+type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; storage_path?: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
 type Log = { id: string; agent: string; level: string; message: string; created_at: string };
 type PendingUpload = { id: string; name: string; previewUrl: string; status: "queued" | "uploading" | "processing" | "done" | "error"; progress: number; error?: string };
 
@@ -115,10 +117,25 @@ function EventDetail() {
     ]);
     setEv(e as Event | null);
     if (e && (e as Event).audience) setAudience(((e as Event).audience as AudienceId) ?? "general");
-    setAssets((a ?? []) as Asset[]);
-    setPosts((p ?? []) as Post[]);
+
+    // Mint fresh signed URLs from the permanent storage paths on every load,
+    // so nothing ever depends on a stored (expiring) URL.
+    const rawAssets = (a ?? []) as Asset[];
+    const rawPosts = (p ?? []) as Post[];
+    const paths = Array.from(new Set([
+      ...rawAssets.map(x => x.storage_path).filter(Boolean),
+      ...rawPosts.map(x => x.storage_path || extractStoragePath(x.image_url, "event-media")).filter(Boolean),
+    ]));
+    const signed = await getSignedUrls("event-media", paths);
+
+    setAssets(rawAssets.map(x => ({ ...x, public_url: signed[x.storage_path] ?? null })));
+    setPosts(rawPosts.map(x => {
+      const path = x.storage_path || extractStoragePath(x.image_url, "event-media");
+      return { ...x, image_url: signed[path] ?? null };
+    }));
     setLogs((l ?? []) as Log[]);
   }, [id]);
+
 
   useEffect(() => {
     if (!user) return;
@@ -157,7 +174,7 @@ function EventDetail() {
     setPending(prev => [...items.map(({ file: _f, ...rest }) => rest), ...prev]);
     setUploading(true);
 
-    type UploadResult = { path: string; isVideo: boolean; filename: string; signedUrl: string | null };
+    type UploadResult = { path: string; isVideo: boolean; filename: string };
     const completed: UploadResult[] = [];
 
     const CONCURRENCY = 4;
@@ -185,12 +202,8 @@ function EventDetail() {
             setPending(prev => prev.map(p => p.id === item.id ? { ...p, progress: pct } : p));
           });
 
-          const { data: signedRead } = await supabase.storage
-            .from("event-media").createSignedUrl(path, 60 * 60 * 24 * 7);
+          completed.push({ path, isVideo, filename: item.file.name });
 
-          completed.push({
-            path, isVideo, filename: item.file.name, signedUrl: signedRead?.signedUrl ?? null,
-          });
 
           setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "done", progress: 100 } : p));
           setTimeout(() => {
@@ -211,8 +224,10 @@ function EventDetail() {
     if (completed.length > 0) {
       const rows = completed.map(c => ({
         event_id: ev.id, user_id: user.id, storage_path: c.path,
-        public_url: c.signedUrl, kind: c.isVideo ? "video" : "image", filename: c.filename,
+        storage_bucket: "event-media", public_url: null,
+        kind: c.isVideo ? "video" : "image", filename: c.filename,
       }));
+
       const { error: insErr } = await supabase.from("assets").insert(rows);
       if (insErr) {
         console.error("[upload] batch insert failed", insErr);

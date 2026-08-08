@@ -204,18 +204,17 @@ Deno.serve(async (req) => {
             scene: parsed.scene ?? null,
             ai_summary: parsed.summary ?? `Moment from ${ev.name}`,
             analyzed: true,
-            public_url: publicUrl,
+            public_url: null,
           }).eq("id", a.id);
           await log("media", `Scored ${a.filename}: ${parsed.quality ?? "?"}/10`);
         } catch (e) {
-          // Fallback: still mark analyzed with neutral score so pipeline proceeds
-          const { data: signed } = await admin.storage.from("event-media").createSignedUrl(a.storage_path, 60 * 60 * 24 * 7);
           await admin.from("assets").update({
             quality_score: 5,
             ai_summary: `Moment from ${ev.name}`,
             analyzed: true,
-            public_url: signed?.signedUrl ?? a.public_url,
+            public_url: null,
           }).eq("id", a.id);
+
           await log("media", `Fallback scored ${a.filename}: ${(e as Error).message}`, "warn");
         }
       }
@@ -395,7 +394,7 @@ let postsCreated = 0;
           event_id, user_id: user.id, source_asset_id: pick.id,
           platform, format: meta.format,
           caption: capJson.caption, hashtags: capJson.hashtags,
-          image_url: pick.public_url, storage_path: null,
+          image_url: null, storage_path: pick.storage_path, storage_bucket: "event-media",
           audience,
           best_time: meta.bestTime,
           predicted_engagement: capJson.predicted_engagement,

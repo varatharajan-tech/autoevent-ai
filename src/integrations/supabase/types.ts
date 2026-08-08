@@ -68,6 +68,7 @@ export type Database = {
           public_url: string | null
           quality_score: number | null
           scene: string | null
+          storage_bucket: string
           storage_path: string
           user_id: string
           width: number | null
@@ -87,6 +88,7 @@ export type Database = {
           public_url?: string | null
           quality_score?: number | null
           scene?: string | null
+          storage_bucket?: string
           storage_path: string
           user_id: string
           width?: number | null
@@ -106,6 +108,7 @@ export type Database = {
           public_url?: string | null
           quality_score?: number | null
           scene?: string | null
+          storage_bucket?: string
           storage_path?: string
           user_id?: string
           width?: number | null
@@ -181,6 +184,7 @@ export type Database = {
           platform: string
           predicted_engagement: number | null
           source_asset_id: string | null
+          storage_bucket: string
           storage_path: string | null
           user_id: string
         }
@@ -199,6 +203,7 @@ export type Database = {
           platform: string
           predicted_engagement?: number | null
           source_asset_id?: string | null
+          storage_bucket?: string
           storage_path?: string | null
           user_id: string
         }
@@ -217,6 +222,7 @@ export type Database = {
           platform?: string
           predicted_engagement?: number | null
           source_asset_id?: string | null
+          storage_bucket?: string
           storage_path?: string | null
           user_id?: string
         }

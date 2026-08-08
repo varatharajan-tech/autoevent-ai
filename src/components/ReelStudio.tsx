@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngine";
 import { MOODS, type Mood } from "@/lib/reelMusic";
 import { supabase } from "@/integrations/supabase/client";
+import { getSignedUrls } from "@/lib/storage";
+
 
 type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null; kind?: string | null };
 type Post = { platform: string; caption: string };
@@ -76,19 +78,11 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       .order("created_at", { ascending: false });
     if (error) { console.warn("[ReelStudio] history load failed", error); return; }
     const rows = (data ?? []) as ReelRow[];
-    // Replace stored public_urls with fresh signed URLs (bucket is private)
-    const signed = await Promise.all(rows.map(async (r) => {
-      try {
-        const { data: s } = await supabase.storage
-          .from("generated")
-          .createSignedUrl(r.storage_path, 60 * 60 * 24 * 7);
-        return { ...r, public_url: s?.signedUrl ?? null };
-      } catch {
-        return { ...r, public_url: null };
-      }
-    }));
-    setHistory(signed);
+    // Signed URLs are minted fresh from the permanent storage path on every load.
+    const signed = await getSignedUrls("generated", rows.map(r => r.storage_path));
+    setHistory(rows.map(r => ({ ...r, public_url: signed[r.storage_path] ?? null })));
   }, [eventId]);
+
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
@@ -153,15 +147,13 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           .from("generated")
           .upload(path, blob, { contentType: blob.type, upsert: false });
         if (upErr) throw upErr;
-        const { data: signed } = await supabase.storage
-          .from("generated")
-          .createSignedUrl(path, 60 * 60 * 24 * 7);
         const { error: insErr } = await supabase.from("generated_reels").insert({
           event_id: eventId, user_id: userId, storage_path: path,
-          public_url: signed?.signedUrl ?? null, platform, mood,
+          public_url: null, platform, mood,
           duration_sec: durationSec, mime_type: blob.type || `video/${ext}`,
           file_size: blob.size, slide_count: orderedAssets.length,
         });
+
         if (insErr) throw insErr;
         await loadHistory();
         toast.success("Saved to Reel History");
