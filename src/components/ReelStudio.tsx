@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngine";
 import { MOODS, type Mood } from "@/lib/reelMusic";
 import { supabase } from "@/integrations/supabase/client";
+import { getSignedUrls } from "@/lib/storage";
+
 
 type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null; kind?: string | null };
 type Post = { platform: string; caption: string };
