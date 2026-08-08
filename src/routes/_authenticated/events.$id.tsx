@@ -202,12 +202,8 @@ function EventDetail() {
             setPending(prev => prev.map(p => p.id === item.id ? { ...p, progress: pct } : p));
           });
 
-          const { data: signedRead } = await supabase.storage
-            .from("event-media").createSignedUrl(path, 60 * 60 * 24 * 7);
+          completed.push({ path, isVideo, filename: item.file.name });
 
-          completed.push({
-            path, isVideo, filename: item.file.name, signedUrl: signedRead?.signedUrl ?? null,
-          });
 
           setPending(prev => prev.map(p => p.id === item.id ? { ...p, status: "done", progress: 100 } : p));
           setTimeout(() => {
