@@ -108,13 +108,17 @@ function EventDetail() {
 
   // Auth guard handled by _authenticated layout
 
+  const [notFound, setNotFound] = useState(false);
+
   const loadAll = useCallback(async () => {
-    const [{ data: e }, { data: a }, { data: p }, { data: l }] = await Promise.all([
-      supabase.from("events").select("*").eq("id", id).single(),
+    const [{ data: e, error: evErr }, { data: a }, { data: p }, { data: l }] = await Promise.all([
+      supabase.from("events").select("*").eq("id", id).maybeSingle(),
       supabase.from("assets").select("*").eq("event_id", id).order("quality_score", { ascending: false, nullsFirst: false }),
       supabase.from("generated_posts").select("*").eq("event_id", id).order("created_at", { ascending: false }),
       supabase.from("agent_logs").select("*").eq("event_id", id).order("created_at", { ascending: true }),
     ]);
+    if (evErr || !e) { setNotFound(true); return; }
+    setNotFound(false);
     setEv(e as Event | null);
     if (e && (e as Event).audience) setAudience(((e as Event).audience as AudienceId) ?? "general");
 
@@ -147,7 +151,10 @@ function EventDetail() {
       .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `id=eq.${id}` }, loadAll)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [user, id, loadAll]);
+    // Stable user id only — the User object identity changes on every auth
+    // event, which previously re-ran this effect and tripled the mount queries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, id, loadAll]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || !user || !ev) return;
@@ -263,7 +270,34 @@ function EventDetail() {
     }
   }
 
-  if (loading || !ev) return <div className="min-h-screen bg-paper"><SiteHeader /></div>;
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-paper">
+        <SiteHeader />
+        <main className="mx-auto max-w-2xl px-6 py-24 text-center">
+          <AlertCircle className="size-10 mx-auto text-muted-foreground" />
+          <h1 className="font-display text-4xl mt-4">Event not found</h1>
+          <p className="text-muted-foreground mt-2">
+            This event doesn’t exist, or you don’t have access to it.
+          </p>
+          <Link to="/dashboard" className="inline-block mt-6">
+            <Button><ArrowLeft className="size-4 mr-1" /> Back to events</Button>
+          </Link>
+        </main>
+      </div>
+    );
+  }
+
+  if (loading || !ev) {
+    return (
+      <div className="min-h-screen bg-paper">
+        <SiteHeader />
+        <main className="mx-auto max-w-6xl px-6 py-16 grid place-items-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </main>
+      </div>
+    );
+  }
 
   const topPicks = assets.filter(a => a.is_top_pick);
 
@@ -284,7 +318,7 @@ function EventDetail() {
             <h1 className="font-display text-5xl mt-2">{ev.name}</h1>
             {ev.description && <p className="text-muted-foreground mt-2 max-w-2xl">{ev.description}</p>}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input ref={fileRef} type="file" multiple accept="image/*,video/*" hidden onChange={(e) => handleFiles(e.target.files)} />
             <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading}>
               {uploading ? <Loader2 className="size-4 animate-spin mr-1" /> : <Upload className="size-4 mr-1" />} Upload
@@ -396,7 +430,8 @@ function EventDetail() {
           </div>
         ) : (
           <Tabs defaultValue="picks" className="w-full">
-            <TabsList className="bg-cream">
+            <TabsList className="bg-cream max-w-full overflow-x-auto justify-start">
+
               <TabsTrigger value="picks">Top picks ({topPicks.length})</TabsTrigger>
               <TabsTrigger value="all">All assets ({assets.length})</TabsTrigger>
               <TabsTrigger value="posts">Generated posts ({posts.length})</TabsTrigger>
@@ -796,7 +831,7 @@ function PlatformPosts({ posts, eventId, eventName, brandColor }: { posts: Post[
         </Button>
       </div>
       <Tabs defaultValue={initial} className="w-full">
-        <TabsList className="bg-cream">
+        <TabsList className="bg-cream max-w-full overflow-x-auto justify-start">
           {list.map(({ id, label, Icon }) => {
             const count = posts.filter(p => p.platform === id).length;
             return (
