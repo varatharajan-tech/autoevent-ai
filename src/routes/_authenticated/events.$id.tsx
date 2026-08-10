@@ -831,7 +831,7 @@ function PlatformPosts({ posts, eventId, eventName, brandColor }: { posts: Post[
         </Button>
       </div>
       <Tabs defaultValue={initial} className="w-full">
-        <TabsList className="bg-cream">
+        <TabsList className="bg-cream max-w-full overflow-x-auto justify-start">
           {list.map(({ id, label, Icon }) => {
             const count = posts.filter(p => p.platform === id).length;
             return (
