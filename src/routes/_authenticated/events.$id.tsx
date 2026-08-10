@@ -318,7 +318,7 @@ function EventDetail() {
             <h1 className="font-display text-5xl mt-2">{ev.name}</h1>
             {ev.description && <p className="text-muted-foreground mt-2 max-w-2xl">{ev.description}</p>}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input ref={fileRef} type="file" multiple accept="image/*,video/*" hidden onChange={(e) => handleFiles(e.target.files)} />
             <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading}>
               {uploading ? <Loader2 className="size-4 animate-spin mr-1" /> : <Upload className="size-4 mr-1" />} Upload
