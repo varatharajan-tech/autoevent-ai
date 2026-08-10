@@ -108,13 +108,17 @@ function EventDetail() {
 
   // Auth guard handled by _authenticated layout
 
+  const [notFound, setNotFound] = useState(false);
+
   const loadAll = useCallback(async () => {
-    const [{ data: e }, { data: a }, { data: p }, { data: l }] = await Promise.all([
-      supabase.from("events").select("*").eq("id", id).single(),
+    const [{ data: e, error: evErr }, { data: a }, { data: p }, { data: l }] = await Promise.all([
+      supabase.from("events").select("*").eq("id", id).maybeSingle(),
       supabase.from("assets").select("*").eq("event_id", id).order("quality_score", { ascending: false, nullsFirst: false }),
       supabase.from("generated_posts").select("*").eq("event_id", id).order("created_at", { ascending: false }),
       supabase.from("agent_logs").select("*").eq("event_id", id).order("created_at", { ascending: true }),
     ]);
+    if (evErr || !e) { setNotFound(true); return; }
+    setNotFound(false);
     setEv(e as Event | null);
     if (e && (e as Event).audience) setAudience(((e as Event).audience as AudienceId) ?? "general");
 
@@ -147,7 +151,10 @@ function EventDetail() {
       .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `id=eq.${id}` }, loadAll)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [user, id, loadAll]);
+    // Stable user id only — the User object identity changes on every auth
+    // event, which previously re-ran this effect and tripled the mount queries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, id, loadAll]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || !user || !ev) return;
