@@ -44,7 +44,11 @@ function Dashboard() {
     const ch = supabase.channel("events-rt").on("postgres_changes",
       { event: "*", schema: "public", table: "events" }, load).subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [user]);
+    // Depend on the stable user id — the User object identity changes on every
+    // auth event (INITIAL_SESSION, TOKEN_REFRESHED), which re-ran this effect
+    // and fired duplicate queries + duplicate realtime channels on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   async function createEvent(e: React.FormEvent) {
     e.preventDefault();
