@@ -270,7 +270,34 @@ function EventDetail() {
     }
   }
 
-  if (loading || !ev) return <div className="min-h-screen bg-paper"><SiteHeader /></div>;
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-paper">
+        <SiteHeader />
+        <main className="mx-auto max-w-2xl px-6 py-24 text-center">
+          <AlertCircle className="size-10 mx-auto text-muted-foreground" />
+          <h1 className="font-display text-4xl mt-4">Event not found</h1>
+          <p className="text-muted-foreground mt-2">
+            This event doesn’t exist, or you don’t have access to it.
+          </p>
+          <Link to="/dashboard" className="inline-block mt-6">
+            <Button><ArrowLeft className="size-4 mr-1" /> Back to events</Button>
+          </Link>
+        </main>
+      </div>
+    );
+  }
+
+  if (loading || !ev) {
+    return (
+      <div className="min-h-screen bg-paper">
+        <SiteHeader />
+        <main className="mx-auto max-w-6xl px-6 py-16 grid place-items-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </main>
+      </div>
+    );
+  }
 
   const topPicks = assets.filter(a => a.is_top_pick);
 
