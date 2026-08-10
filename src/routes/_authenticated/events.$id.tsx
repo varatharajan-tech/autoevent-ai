@@ -430,7 +430,8 @@ function EventDetail() {
           </div>
         ) : (
           <Tabs defaultValue="picks" className="w-full">
-            <TabsList className="bg-cream">
+            <TabsList className="bg-cream max-w-full overflow-x-auto justify-start">
+
               <TabsTrigger value="picks">Top picks ({topPicks.length})</TabsTrigger>
               <TabsTrigger value="all">All assets ({assets.length})</TabsTrigger>
               <TabsTrigger value="posts">Generated posts ({posts.length})</TabsTrigger>
