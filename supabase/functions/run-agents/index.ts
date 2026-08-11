@@ -402,6 +402,35 @@ Deno.serve(async (req) => {
       return CLICHE_OPENERS.some((c) => head.startsWith(c) || head.includes(c));
     };
 
+    // ===== BRAND SAFETY — final gate before anything is saved =====
+    const PROFANITY = [
+      "fuck", "fucking", "fuckin", "shit", "bullshit", "bitch", "bastard", "asshole",
+      "dick", "cunt", "slut", "whore", "piss", "wanker", "prick", "damn", "goddamn",
+      "crap", "retard", "retarded", "nigger", "faggot", "twat", "bollocks",
+    ];
+    // Words that create legal / reputational risk in brand posts.
+    const UNSAFE_CLAIMS = [
+      "guaranteed results", "risk free", "risk-free", "get rich", "miracle",
+      "cure", "100% safe", "no.1 in the world", "best in the world",
+      "scam", "hate", "kill", "drunk", "wasted", "high af",
+    ];
+    const wordRe = (w: string) => new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`, "i");
+    const scanUnsafe = (text: string) => {
+      const t = ` ${text.toLowerCase()} `;
+      const hits: string[] = [];
+      for (const w of PROFANITY) if (wordRe(w).test(t)) hits.push(w);
+      for (const w of UNSAFE_CLAIMS) if (t.includes(w)) hits.push(w);
+      return hits;
+    };
+    const scrubUnsafe = (text: string) => {
+      let out = text;
+      for (const w of [...PROFANITY, ...UNSAFE_CLAIMS]) {
+        out = out.replace(new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[^a-z0-9]|$)`, "gi"), "$1");
+      }
+      return out.replace(/[ \t]{2,}/g, " ").replace(/ ([,.!?])/g, "$1").replace(/\n{3,}/g, "\n\n").trim();
+    };
+    const safeHashtags = (tags: string[]) => tags.filter((t) => scanUnsafe(t).length === 0);
+
 
 let postsCreated = 0;
     await Promise.all(requested.map(async (platform) => {
