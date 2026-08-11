@@ -107,6 +107,38 @@ async function callAI(
   throw lastErr;
 }
 
+// Text-only calls (captions/hashtags) go to Groq. Falls back to the Lovable
+// gateway model if the Groq key is missing or Groq fails.
+async function callText(
+  messages: unknown[],
+  timeoutMs = 30000,
+  retries = 2,
+  ctx?: { log?: LogFn; agent?: string; step?: string },
+) {
+  if (GROQ_API_KEY) {
+    let delay = 700;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await postChat(GROQ_URL, GROQ_API_KEY, {
+          model: GROQ_MODEL,
+          messages,
+          temperature: 0.9,
+          response_format: { type: "json_object" },
+        }, timeoutMs);
+      } catch (e) {
+        if (attempt === retries || !isRetryable(e)) {
+          if (ctx?.log) await ctx.log(ctx.agent ?? "content", `${ctx.step ?? "call"} Groq failed (${(e as Error).message.slice(0, 80)}) — using fallback model`, "warn");
+          break;
+        }
+        await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 250)));
+        delay *= 2;
+      }
+    }
+  }
+  return await callAI({ model: "google/gemini-2.5-flash", messages }, timeoutMs, 2, ctx);
+}
+
+
 function parseJsonLoose(text: string): Record<string, unknown> {
   const cleaned = (text ?? "").replace(/```json|```/g, "").trim();
   const m = cleaned.match(/\{[\s\S]*\}/);
