@@ -20,23 +20,26 @@ function corsFor(origin: string | null) {
 }
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 type Asset = {
   id: string; event_id: string; user_id: string; storage_path: string;
   public_url: string | null; filename: string | null;
 };
 
-async function callAIOnce(body: Record<string, unknown>, timeoutMs: number) {
+async function postChat(url: string, key: string, body: Record<string, unknown>, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(AI_URL, {
+    const r = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -51,6 +54,11 @@ async function callAIOnce(body: Record<string, unknown>, timeoutMs: number) {
     clearTimeout(t);
   }
 }
+
+async function callAIOnce(body: Record<string, unknown>, timeoutMs: number) {
+  return await postChat(AI_URL, LOVABLE_API_KEY, body, timeoutMs);
+}
+
 
 function isRetryable(err: unknown): boolean {
   const e = err as { name?: string; status?: number; message?: string };
@@ -98,6 +106,38 @@ async function callAI(
   }
   throw lastErr;
 }
+
+// Text-only calls (captions/hashtags) go to Groq. Falls back to the Lovable
+// gateway model if the Groq key is missing or Groq fails.
+async function callText(
+  messages: unknown[],
+  timeoutMs = 30000,
+  retries = 2,
+  ctx?: { log?: LogFn; agent?: string; step?: string },
+) {
+  if (GROQ_API_KEY) {
+    let delay = 700;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await postChat(GROQ_URL, GROQ_API_KEY, {
+          model: GROQ_MODEL,
+          messages,
+          temperature: 0.9,
+          response_format: { type: "json_object" },
+        }, timeoutMs);
+      } catch (e) {
+        if (attempt === retries || !isRetryable(e)) {
+          if (ctx?.log) await ctx.log(ctx.agent ?? "content", `${ctx.step ?? "call"} Groq failed (${(e as Error).message.slice(0, 80)}) — using fallback model`, "warn");
+          break;
+        }
+        await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 250)));
+        delay *= 2;
+      }
+    }
+  }
+  return await callAI({ model: "google/gemini-2.5-flash", messages }, timeoutMs, 2, ctx);
+}
+
 
 function parseJsonLoose(text: string): Record<string, unknown> {
   const cleaned = (text ?? "").replace(/```json|```/g, "").trim();
@@ -331,6 +371,19 @@ Deno.serve(async (req) => {
       });
     };
 
+    const CLICHE_OPENERS = [
+      "excited to share", "excited to announce", "thrilled to", "so thrilled",
+      "what a day", "what an amazing", "it was an honour", "it was an honor",
+      "we are proud", "were proud to", "proud to share", "delighted to",
+      "grateful for", "amazing time at", "check out", "last week we",
+      "happy to share", "pleased to announce", "unforgettable experience",
+    ];
+    const hasClicheOpener = (caption: string) => {
+      const head = normalize(caption).slice(0, 60);
+      return CLICHE_OPENERS.some((c) => head.startsWith(c) || head.includes(c));
+    };
+
+
 let postsCreated = 0;
     await Promise.all(requested.map(async (platform) => {
       const meta = PLATFORM_META[platform];
@@ -351,16 +404,15 @@ let postsCreated = 0;
           const avoidBlock = priorCaptions.length
             ? `\n\nAVOID DUPLICATION. Previous variations for this platform (do NOT mimic their opening line, sentence structure, or phrasing):\n${priorCaptions.map((c, i) => `(${i + 1}) "${c.slice(0, 220)}"`).join("\n")}\nYour caption MUST start with a clearly different opening word/phrase and use a different structure.`
             : "";
-          const retryNote = attempt > 0 ? "\n\nYour previous draft was too similar to an existing variation. Rewrite from scratch with a fundamentally different opener and structure." : "";
+          const retryNote = attempt > 0 ? "\n\nYour previous draft was rejected (too similar to another variation, or it opened with a banned cliché). Rewrite from scratch with a fundamentally different hook and structure." : "";
+          const craftRules = `\n\nCRAFT RULES — non-negotiable:\n1. HOOK: the first line must stop the scroll on its own. Make it specific, surprising or emotional. Max ~10 words. It must work even if the reader never taps "more".\n2. STORY: the middle must be a micro-story anchored in ONE concrete, sensory detail taken from the photo analysis below (the scene, the emotion, the moment) — not a generic summary of the event. Show, don't announce.\n3. CLOSE: end with a clear, natural close that fits ${platform} — an invitation, a question, a takeaway line, or a soft CTA. Never end mid-thought.\n4. BANNED OPENERS AND PHRASES (never use, in any form): "Excited to share", "Thrilled to announce", "What a day", "It was an honour", "Last week we", "We are proud to", "Delighted to", "Grateful for", "Amazing time at", "Check out", "Without further ado", "In today's fast-paced world", "game-changer", "unforgettable experience", "truly special".\n5. NO CORPORATE FILLER: no "synergy", "leverage", "ecosystem", "journey", "at the end of the day". Write like a human who was actually there.\n6. Concrete beats abstract. Specific numbers, objects, sounds and reactions beat adjectives.`;
           try {
             await log("content", `Writing ${platform} variation ${v + 1}/${variants} (${angle.name})${attempt ? ` — retry ${attempt}` : ""}…`);
-            const cap = await callAI({
-              model: "google/gemini-2.5-flash",
-              messages: [
-                { role: "system", content: `You are a social copywriter + trend analyst for ${platform}.\nTone: ${meta.tone}.\nAudience: ${audience} — ${AUDIENCE_GUIDE[audience]}\nVariation: ${angle.name}.\nOpener rule: ${angle.opener}\nStructure rule: ${angle.structure}\nThis post MUST be clearly distinct from any other variation in opening line, sentence structure, rhythm, and word choice.${avoidBlock}${retryNote}${learnedBlock}\nReturn ONLY JSON: {"caption":"...","hashtags":["..."],"trending":["..."],"predicted_engagement":0-100}.\n- "hashtags": platform-appropriate count (lowercase, no # prefix), tailored to caption + audience.\n- "trending": 3-5 currently-trending tags relevant to event topic + ${platform} (lowercase, no #).\n- "predicted_engagement": integer 0-100, your honest estimate of how this post will perform vs typical ${platform} content for ${audience} audience.` },
-                { role: "user", content: `Event: ${ev.name}. ${ev.description ?? ""}\nPhoto: ${pick.ai_summary ?? pick.scene ?? "event moment"}. Emotion: ${pick.emotion ?? "n/a"}.\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}.` },
-              ],
-            }, 30000, 3, { log, agent: "content", step: `caption ${platform} v${v + 1}${attempt ? `r${attempt}` : ""}` });
+            const cap = await callText([
+              { role: "system", content: `You are an elite social copywriter + trend analyst for ${platform}. You write hooks people stop scrolling for.\nTone: ${meta.tone}.\nAudience: ${audience} — ${AUDIENCE_GUIDE[audience]}\nVariation: ${angle.name}.\nOpener rule: ${angle.opener}\nStructure rule: ${angle.structure}\nThis post MUST be clearly distinct from any other variation in opening line, sentence structure, rhythm, and word choice.${craftRules}${avoidBlock}${retryNote}${learnedBlock}\nReturn ONLY JSON: {"caption":"...","hashtags":["..."],"trending":["..."],"predicted_engagement":0-100}.\n- "hashtags": platform-appropriate count (lowercase, no # prefix), tailored to caption + audience. Mix broad reach tags with 2-3 niche ones. No filler tags.\n- "trending": 3-5 currently-trending tags relevant to event topic + ${platform} (lowercase, no #).\n- "predicted_engagement": integer 0-100, your honest estimate of how this post will perform vs typical ${platform} content for ${audience} audience.` },
+              { role: "user", content: `Event: ${ev.name}. ${ev.description ?? ""}\nPhoto: ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}. Lead with the strongest hook you can write for this exact moment.` },
+            ], 30000, 2, { log, agent: "content", step: `caption ${platform} v${v + 1}${attempt ? `r${attempt}` : ""}` });
+
             const parsed = parseJsonLoose(cap.choices?.[0]?.message?.content ?? "") as { caption?: string; hashtags?: string[]; trending?: string[]; predicted_engagement?: number };
             if (parsed.caption) {
               const tags = Array.isArray(parsed.hashtags) ? parsed.hashtags : capJson.hashtags;
@@ -378,6 +430,12 @@ let postsCreated = 0;
                 capJson = candidate;
                 continue;
               }
+              if (attempt === 0 && hasClicheOpener(candidate.caption)) {
+                await log("content", `Weak/cliché hook for ${platform} v${v + 1} — regenerating`, "warn");
+                capJson = candidate;
+                continue;
+              }
+
               capJson = candidate;
               accepted = true;
               await log("content", `Caption ${v + 1} accepted for ${platform} (${angle.name}) — predicted ${capJson.predicted_engagement}/100`, "success");
