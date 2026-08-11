@@ -20,23 +20,26 @@ function corsFor(origin: string | null) {
 }
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 type Asset = {
   id: string; event_id: string; user_id: string; storage_path: string;
   public_url: string | null; filename: string | null;
 };
 
-async function callAIOnce(body: Record<string, unknown>, timeoutMs: number) {
+async function postChat(url: string, key: string, body: Record<string, unknown>, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(AI_URL, {
+    const r = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -51,6 +54,11 @@ async function callAIOnce(body: Record<string, unknown>, timeoutMs: number) {
     clearTimeout(t);
   }
 }
+
+async function callAIOnce(body: Record<string, unknown>, timeoutMs: number) {
+  return await postChat(AI_URL, LOVABLE_API_KEY, body, timeoutMs);
+}
+
 
 function isRetryable(err: unknown): boolean {
   const e = err as { name?: string; status?: number; message?: string };
