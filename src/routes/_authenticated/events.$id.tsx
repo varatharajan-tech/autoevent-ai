@@ -108,6 +108,8 @@ function EventDetail() {
   const [drag, setDrag] = useState(false);
   const [selected, setSelected] = useState<PlatformId[]>(["instagram", "linkedin", "twitter", "facebook"]);
   const [audience, setAudience] = useState<AudienceId>("general");
+  const [brandVoice, setBrandVoice] = useState<BrandVoiceId>("balanced");
+  const [voiceNotes, setVoiceNotes] = useState("");
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
