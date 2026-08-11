@@ -371,6 +371,19 @@ Deno.serve(async (req) => {
       });
     };
 
+    const CLICHE_OPENERS = [
+      "excited to share", "excited to announce", "thrilled to", "so thrilled",
+      "what a day", "what an amazing", "it was an honour", "it was an honor",
+      "we are proud", "were proud to", "proud to share", "delighted to",
+      "grateful for", "amazing time at", "check out", "last week we",
+      "happy to share", "pleased to announce", "unforgettable experience",
+    ];
+    const hasClicheOpener = (caption: string) => {
+      const head = normalize(caption).slice(0, 60);
+      return CLICHE_OPENERS.some((c) => head.startsWith(c) || head.includes(c));
+    };
+
+
 let postsCreated = 0;
     await Promise.all(requested.map(async (platform) => {
       const meta = PLATFORM_META[platform];
