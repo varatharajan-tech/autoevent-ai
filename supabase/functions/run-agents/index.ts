@@ -187,6 +187,13 @@ Deno.serve(async (req) => {
     const { data: ev } = await admin.from("events").select("*").eq("id", event_id).eq("user_id", user.id).single();
     if (!ev) return new Response(JSON.stringify({ error: "event not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    const BRAND_VOICES = ["balanced", "bold", "warm", "playful", "premium", "expert"] as const;
+    type BrandVoice = typeof BRAND_VOICES[number];
+    const rawVoice = typeof reqBody.brand_voice === "string" ? reqBody.brand_voice : (ev.brand_voice as string | null) ?? "balanced";
+    const brandVoice: BrandVoice = (BRAND_VOICES as readonly string[]).includes(rawVoice) ? (rawVoice as BrandVoice) : "balanced";
+    const rawNotes = typeof reqBody.brand_voice_notes === "string" ? reqBody.brand_voice_notes : (ev.brand_voice_notes as string | null) ?? "";
+    const brandVoiceNotes = rawNotes.trim().slice(0, 600);
+
     await admin.from("events").update({ status: "analyzing" }).eq("id", event_id);
     await log("orchestrator", `Starting agentic pipeline for "${ev.name}"`);
     await log("orchestrator", `Platforms requested: ${requested.join(", ")}`);
