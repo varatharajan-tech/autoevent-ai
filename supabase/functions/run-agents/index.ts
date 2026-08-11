@@ -447,6 +447,7 @@ let postsCreated = 0;
         const angle = VARIATION_ANGLES[v % VARIATION_ANGLES.length];
         let capJson: { caption: string; hashtags: string[]; trending: string[]; predicted_engagement: number } = fallbackPost(platform, pick);
         let accepted = false;
+        let lastRejection = "";
 
         for (let attempt = 0; attempt < 3 && !accepted; attempt++) {
           const avoidBlock = priorCaptions.length
