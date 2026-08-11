@@ -291,8 +291,8 @@ Deno.serve(async (req) => {
     }
 
     // ===== CONTENT AGENT — caption + hashtags + intelligence per pick =====
-    await admin.from("events").update({ status: "generating", audience }).eq("id", event_id);
-    await log("content", `Generating captions, trends & timing (audience: ${audience})`);
+    await admin.from("events").update({ status: "generating", audience, brand_voice: brandVoice, brand_voice_notes: brandVoiceNotes || null }).eq("id", event_id);
+    await log("content", `Generating captions, trends & timing (audience: ${audience}, voice: ${brandVoice})`);
 
     const PLATFORM_META: Record<Plat, { format: string; tone: string; bestTime: string }> = {
       instagram: { format: "1:1", tone: "short, engaging, warm; lots of emojis; 8-12 lowercase hashtags", bestTime: "Weekdays 6–9 PM (local)" },
@@ -308,6 +308,18 @@ Deno.serve(async (req) => {
       startups: "Founders & operators. Bold, fast, growth-minded. Concrete insights, no fluff.",
       corporate: "Corporate / enterprise. Polished, measured, outcome-focused. Zero slang, minimal emojis.",
     };
+
+    const BRAND_VOICE_GUIDE: Record<BrandVoice, string> = {
+      balanced: "Balanced brand voice: clear, human, confident. Neutral warmth, no hype, no jargon. Medium sentence length.",
+      bold: "Bold brand voice: punchy, declarative, high-conviction. Short sentences. Strong verbs. Take a stance. Never hedge with 'maybe' or 'perhaps'.",
+      warm: "Warm brand voice: generous, people-first, sincere. Name the humans in the room. Gentle rhythm, gratitude expressed through specifics rather than the word 'grateful'.",
+      playful: "Playful brand voice: witty, light, a little cheeky. One well-earned joke or wink per post. Never sarcastic at anyone's expense.",
+      premium: "Premium brand voice: restrained, elegant, understated. Few words, high craft. No exclamation marks, no emoji spam, no hype adjectives.",
+      expert: "Expert brand voice: analytical and credible. Lead with an observation or insight, support it with a concrete detail, avoid adjectives without evidence.",
+    };
+    const voiceBlock = `\nBRAND VOICE (${brandVoice}) — this outranks generic platform tone when they conflict: ${BRAND_VOICE_GUIDE[brandVoice]}${brandVoiceNotes ? `\nBRAND VOICE NOTES from the brand owner (follow literally): ${brandVoiceNotes}` : ""}`;
+
+    const STORY_STRUCTURE = `\n\nSTORY STRUCTURE — write in these four beats, in order, with no headings or labels:\n1. HOOK (1 line): a specific image, tension or claim that stops the scroll on its own.\n2. MOMENT (1-2 lines): drop the reader into one concrete scene from the photo analysis — what was happening, who was there, what it felt like in the room.\n3. MEANING (1 line): why that moment mattered. One idea only, earned by the moment above — not a slogan.\n4. TURN (1 line): close by handing something to the reader — an invitation, a question, a takeaway, or a soft CTA that fits the platform.\nBeats must flow as natural prose. Keep the whole post within the platform length rule.`;
 
     // Self-improvement: learn from past top-performing posts for this user
     const { data: pastTop } = await admin
