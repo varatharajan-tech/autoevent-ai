@@ -28,7 +28,7 @@ type PlatformId = typeof PLATFORMS[number]["id"];
 
 export const Route = createFileRoute("/_authenticated/events/$id")({ component: EventDetail });
 
-type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null; brand_voice?: string | null; brand_voice_notes?: string | null };
+type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
 type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; storage_path?: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
@@ -43,16 +43,6 @@ const AUDIENCES = [
   { id: "corporate", label: "Corporate" },
 ] as const;
 type AudienceId = typeof AUDIENCES[number]["id"];
-
-const BRAND_VOICES = [
-  { id: "balanced", label: "Balanced", hint: "Clear, human, confident" },
-  { id: "bold", label: "Bold", hint: "Punchy, high-conviction" },
-  { id: "warm", label: "Warm", hint: "People-first, sincere" },
-  { id: "playful", label: "Playful", hint: "Witty and light" },
-  { id: "premium", label: "Premium", hint: "Restrained, elegant" },
-  { id: "expert", label: "Expert", hint: "Analytical, credible" },
-] as const;
-type BrandVoiceId = typeof BRAND_VOICES[number]["id"];
 
 const MAX_DIM = 1920;
 const COMPRESS_THRESHOLD = 300 * 1024; // skip files already under 300KB
@@ -108,8 +98,6 @@ function EventDetail() {
   const [drag, setDrag] = useState(false);
   const [selected, setSelected] = useState<PlatformId[]>(["instagram", "linkedin", "twitter", "facebook"]);
   const [audience, setAudience] = useState<AudienceId>("general");
-  const [brandVoice, setBrandVoice] = useState<BrandVoiceId>("balanced");
-  const [voiceNotes, setVoiceNotes] = useState("");
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -133,8 +121,6 @@ function EventDetail() {
     setNotFound(false);
     setEv(e as Event | null);
     if (e && (e as Event).audience) setAudience(((e as Event).audience as AudienceId) ?? "general");
-    if (e && (e as Event).brand_voice) setBrandVoice(((e as Event).brand_voice as BrandVoiceId) ?? "balanced");
-    if (e) setVoiceNotes((e as Event).brand_voice_notes ?? "");
 
     // Mint fresh signed URLs from the permanent storage paths on every load,
     // so nothing ever depends on a stored (expiring) URL.
@@ -270,7 +256,7 @@ function EventDetail() {
     setRunning(true);
     try {
       const { data, error } = await supabase.functions.invoke("run-agents", {
-        body: { event_id: ev.id, platforms: selected, audience, brand_voice: brandVoice, brand_voice_notes: voiceNotes.trim() },
+        body: { event_id: ev.id, platforms: selected, audience },
       });
       if (error) throw error;
       console.log("[AutoEvent] Agent output", data);
@@ -402,38 +388,6 @@ function EventDetail() {
             </div>
           </div>
         </div>
-
-        <div className="mb-8 bg-card border border-border/60 rounded-xl p-5 shadow-soft">
-          <div className="flex items-start justify-between flex-wrap gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Brand voice</p>
-              <p className="text-sm text-muted-foreground mt-1">Sets the personality of every caption. Overrides generic platform tone.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {BRAND_VOICES.map(({ id, label, hint }) => {
-                const active = brandVoice === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    title={hint}
-                    onClick={() => setBrandVoice(id)}
-                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm transition-colors ${active ? "bg-ink text-paper border-ink" : "bg-paper text-foreground border-border hover:border-ink/40"}`}
-                  >{label}</button>
-                );
-              })}
-            </div>
-          </div>
-          <Textarea
-            value={voiceNotes}
-            onChange={(e) => setVoiceNotes(e.target.value.slice(0, 600))}
-            placeholder="Optional voice notes — e.g. “Always say ‘community’, never ‘users’. No exclamation marks. Mention our tagline once.”"
-            className="mt-4 min-h-[72px]"
-          />
-          <p className="text-xs text-muted-foreground mt-1">{voiceNotes.length}/600 · The writer follows these notes literally.</p>
-        </div>
-
-
 
         {pending.length > 0 && (
           <div className="mb-6 bg-card border border-border/60 rounded-xl p-4 shadow-soft">
