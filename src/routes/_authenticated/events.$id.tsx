@@ -403,6 +403,38 @@ function EventDetail() {
           </div>
         </div>
 
+        <div className="mb-8 bg-card border border-border/60 rounded-xl p-5 shadow-soft">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Brand voice</p>
+              <p className="text-sm text-muted-foreground mt-1">Sets the personality of every caption. Overrides generic platform tone.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {BRAND_VOICES.map(({ id, label, hint }) => {
+                const active = brandVoice === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    title={hint}
+                    onClick={() => setBrandVoice(id)}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm transition-colors ${active ? "bg-ink text-paper border-ink" : "bg-paper text-foreground border-border hover:border-ink/40"}`}
+                  >{label}</button>
+                );
+              })}
+            </div>
+          </div>
+          <Textarea
+            value={voiceNotes}
+            onChange={(e) => setVoiceNotes(e.target.value.slice(0, 600))}
+            placeholder="Optional voice notes — e.g. “Always say ‘community’, never ‘users’. No exclamation marks. Mention our tagline once.”"
+            className="mt-4 min-h-[72px]"
+          />
+          <p className="text-xs text-muted-foreground mt-1">{voiceNotes.length}/600 · The writer follows these notes literally.</p>
+        </div>
+
+
+
         {pending.length > 0 && (
           <div className="mb-6 bg-card border border-border/60 rounded-xl p-4 shadow-soft">
             <div className="flex items-center justify-between mb-3">
