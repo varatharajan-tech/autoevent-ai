@@ -128,6 +128,8 @@ export type Database = {
           asset_count: number
           audience: string | null
           brand_color: string | null
+          brand_voice: string
+          brand_voice_notes: string | null
           created_at: string
           description: string | null
           id: string
@@ -142,6 +144,8 @@ export type Database = {
           asset_count?: number
           audience?: string | null
           brand_color?: string | null
+          brand_voice?: string
+          brand_voice_notes?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -156,6 +160,8 @@ export type Database = {
           asset_count?: number
           audience?: string | null
           brand_color?: string | null
+          brand_voice?: string
+          brand_voice_notes?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -172,6 +178,7 @@ export type Database = {
         Row: {
           audience: string | null
           best_time: string | null
+          brand_voice: string | null
           caption: string | null
           created_at: string
           engagement_score: number | null
@@ -191,6 +198,7 @@ export type Database = {
         Insert: {
           audience?: string | null
           best_time?: string | null
+          brand_voice?: string | null
           caption?: string | null
           created_at?: string
           engagement_score?: number | null
@@ -210,6 +218,7 @@ export type Database = {
         Update: {
           audience?: string | null
           best_time?: string | null
+          brand_voice?: string | null
           caption?: string | null
           created_at?: string
           engagement_score?: number | null

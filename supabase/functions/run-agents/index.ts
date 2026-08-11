@@ -187,6 +187,13 @@ Deno.serve(async (req) => {
     const { data: ev } = await admin.from("events").select("*").eq("id", event_id).eq("user_id", user.id).single();
     if (!ev) return new Response(JSON.stringify({ error: "event not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    const BRAND_VOICES = ["balanced", "bold", "warm", "playful", "premium", "expert"] as const;
+    type BrandVoice = typeof BRAND_VOICES[number];
+    const rawVoice = typeof reqBody.brand_voice === "string" ? reqBody.brand_voice : (ev.brand_voice as string | null) ?? "balanced";
+    const brandVoice: BrandVoice = (BRAND_VOICES as readonly string[]).includes(rawVoice) ? (rawVoice as BrandVoice) : "balanced";
+    const rawNotes = typeof reqBody.brand_voice_notes === "string" ? reqBody.brand_voice_notes : (ev.brand_voice_notes as string | null) ?? "";
+    const brandVoiceNotes = rawNotes.trim().slice(0, 600);
+
     await admin.from("events").update({ status: "analyzing" }).eq("id", event_id);
     await log("orchestrator", `Starting agentic pipeline for "${ev.name}"`);
     await log("orchestrator", `Platforms requested: ${requested.join(", ")}`);
@@ -284,8 +291,8 @@ Deno.serve(async (req) => {
     }
 
     // ===== CONTENT AGENT — caption + hashtags + intelligence per pick =====
-    await admin.from("events").update({ status: "generating", audience }).eq("id", event_id);
-    await log("content", `Generating captions, trends & timing (audience: ${audience})`);
+    await admin.from("events").update({ status: "generating", audience, brand_voice: brandVoice, brand_voice_notes: brandVoiceNotes || null }).eq("id", event_id);
+    await log("content", `Generating captions, trends & timing (audience: ${audience}, voice: ${brandVoice})`);
 
     const PLATFORM_META: Record<Plat, { format: string; tone: string; bestTime: string }> = {
       instagram: { format: "1:1", tone: "short, engaging, warm; lots of emojis; 8-12 lowercase hashtags", bestTime: "Weekdays 6–9 PM (local)" },
@@ -301,6 +308,18 @@ Deno.serve(async (req) => {
       startups: "Founders & operators. Bold, fast, growth-minded. Concrete insights, no fluff.",
       corporate: "Corporate / enterprise. Polished, measured, outcome-focused. Zero slang, minimal emojis.",
     };
+
+    const BRAND_VOICE_GUIDE: Record<BrandVoice, string> = {
+      balanced: "Balanced brand voice: clear, human, confident. Neutral warmth, no hype, no jargon. Medium sentence length.",
+      bold: "Bold brand voice: punchy, declarative, high-conviction. Short sentences. Strong verbs. Take a stance. Never hedge with 'maybe' or 'perhaps'.",
+      warm: "Warm brand voice: generous, people-first, sincere. Name the humans in the room. Gentle rhythm, gratitude expressed through specifics rather than the word 'grateful'.",
+      playful: "Playful brand voice: witty, light, a little cheeky. One well-earned joke or wink per post. Never sarcastic at anyone's expense.",
+      premium: "Premium brand voice: restrained, elegant, understated. Few words, high craft. No exclamation marks, no emoji spam, no hype adjectives.",
+      expert: "Expert brand voice: analytical and credible. Lead with an observation or insight, support it with a concrete detail, avoid adjectives without evidence.",
+    };
+    const voiceBlock = `\nBRAND VOICE (${brandVoice}) — this outranks generic platform tone when they conflict: ${BRAND_VOICE_GUIDE[brandVoice]}${brandVoiceNotes ? `\nBRAND VOICE NOTES from the brand owner (follow literally): ${brandVoiceNotes}` : ""}`;
+
+    const STORY_STRUCTURE = `\n\nSTORY STRUCTURE — write in these four beats, in order, with no headings or labels:\n1. HOOK (1 line): a specific image, tension or claim that stops the scroll on its own.\n2. MOMENT (1-2 lines): drop the reader into one concrete scene from the photo analysis — what was happening, who was there, what it felt like in the room.\n3. MEANING (1 line): why that moment mattered. One idea only, earned by the moment above — not a slogan.\n4. TURN (1 line): close by handing something to the reader — an invitation, a question, a takeaway, or a soft CTA that fits the platform.\nBeats must flow as natural prose. Keep the whole post within the platform length rule.`;
 
     // Self-improvement: learn from past top-performing posts for this user
     const { data: pastTop } = await admin
@@ -383,6 +402,35 @@ Deno.serve(async (req) => {
       return CLICHE_OPENERS.some((c) => head.startsWith(c) || head.includes(c));
     };
 
+    // ===== BRAND SAFETY — final gate before anything is saved =====
+    const PROFANITY = [
+      "fuck", "fucking", "fuckin", "shit", "bullshit", "bitch", "bastard", "asshole",
+      "dick", "cunt", "slut", "whore", "piss", "wanker", "prick", "damn", "goddamn",
+      "crap", "retard", "retarded", "nigger", "faggot", "twat", "bollocks",
+    ];
+    // Words that create legal / reputational risk in brand posts.
+    const UNSAFE_CLAIMS = [
+      "guaranteed results", "risk free", "risk-free", "get rich", "miracle",
+      "cure", "100% safe", "no.1 in the world", "best in the world",
+      "scam", "hate", "kill", "drunk", "wasted", "high af",
+    ];
+    const wordRe = (w: string) => new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`, "i");
+    const scanUnsafe = (text: string) => {
+      const t = ` ${text.toLowerCase()} `;
+      const hits: string[] = [];
+      for (const w of PROFANITY) if (wordRe(w).test(t)) hits.push(w);
+      for (const w of UNSAFE_CLAIMS) if (t.includes(w)) hits.push(w);
+      return hits;
+    };
+    const scrubUnsafe = (text: string) => {
+      let out = text;
+      for (const w of [...PROFANITY, ...UNSAFE_CLAIMS]) {
+        out = out.replace(new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[^a-z0-9]|$)`, "gi"), "$1");
+      }
+      return out.replace(/[ \t]{2,}/g, " ").replace(/ ([,.!?])/g, "$1").replace(/\n{3,}/g, "\n\n").trim();
+    };
+    const safeHashtags = (tags: string[]) => tags.filter((t) => scanUnsafe(t).length === 0);
+
 
 let postsCreated = 0;
     await Promise.all(requested.map(async (platform) => {
@@ -399,18 +447,19 @@ let postsCreated = 0;
         const angle = VARIATION_ANGLES[v % VARIATION_ANGLES.length];
         let capJson: { caption: string; hashtags: string[]; trending: string[]; predicted_engagement: number } = fallbackPost(platform, pick);
         let accepted = false;
+        let lastRejection = "";
 
-        for (let attempt = 0; attempt < 2 && !accepted; attempt++) {
+        for (let attempt = 0; attempt < 3 && !accepted; attempt++) {
           const avoidBlock = priorCaptions.length
             ? `\n\nAVOID DUPLICATION. Previous variations for this platform (do NOT mimic their opening line, sentence structure, or phrasing):\n${priorCaptions.map((c, i) => `(${i + 1}) "${c.slice(0, 220)}"`).join("\n")}\nYour caption MUST start with a clearly different opening word/phrase and use a different structure.`
             : "";
-          const retryNote = attempt > 0 ? "\n\nYour previous draft was rejected (too similar to another variation, or it opened with a banned cliché). Rewrite from scratch with a fundamentally different hook and structure." : "";
-          const craftRules = `\n\nCRAFT RULES — non-negotiable:\n1. HOOK: the first line must stop the scroll on its own. Make it specific, surprising or emotional. Max ~10 words. It must work even if the reader never taps "more".\n2. STORY: the middle must be a micro-story anchored in ONE concrete, sensory detail taken from the photo analysis below (the scene, the emotion, the moment) — not a generic summary of the event. Show, don't announce.\n3. CLOSE: end with a clear, natural close that fits ${platform} — an invitation, a question, a takeaway line, or a soft CTA. Never end mid-thought.\n4. BANNED OPENERS AND PHRASES (never use, in any form): "Excited to share", "Thrilled to announce", "What a day", "It was an honour", "Last week we", "We are proud to", "Delighted to", "Grateful for", "Amazing time at", "Check out", "Without further ado", "In today's fast-paced world", "game-changer", "unforgettable experience", "truly special".\n5. NO CORPORATE FILLER: no "synergy", "leverage", "ecosystem", "journey", "at the end of the day". Write like a human who was actually there.\n6. Concrete beats abstract. Specific numbers, objects, sounds and reactions beat adjectives.`;
+          const retryNote = attempt > 0 ? `\n\nYour previous draft was rejected (${lastRejection || "too similar to another variation, or it opened with a banned cliché"}). Rewrite from scratch with a fundamentally different hook and structure.` : "";
+          const craftRules = `\n\nCRAFT RULES — non-negotiable:\n1. HOOK: the first line must stop the scroll on its own. Make it specific, surprising or emotional. Max ~10 words. It must work even if the reader never taps "more".\n2. STORY: the middle must be a micro-story anchored in ONE concrete, sensory detail taken from the photo analysis below (the scene, the emotion, the moment) — not a generic summary of the event. Show, don't announce.\n3. CLOSE: end with a clear, natural close that fits ${platform} — an invitation, a question, a takeaway line, or a soft CTA. Never end mid-thought.\n4. BANNED OPENERS AND PHRASES (never use, in any form): "Excited to share", "Thrilled to announce", "What a day", "It was an honour", "Last week we", "We are proud to", "Delighted to", "Grateful for", "Amazing time at", "Check out", "Without further ado", "In today's fast-paced world", "game-changer", "unforgettable experience", "truly special".\n5. NO CORPORATE FILLER: no "synergy", "leverage", "ecosystem", "journey", "at the end of the day". Write like a human who was actually there.\n6. Concrete beats abstract. Specific numbers, objects, sounds and reactions beat adjectives.\n7. BRAND SAFETY: no profanity, slurs, insults, politics, alcohol/drug references, or absolute claims ("guaranteed", "risk-free", "best in the world"). The post must be safe for a brand account.`;
           try {
             await log("content", `Writing ${platform} variation ${v + 1}/${variants} (${angle.name})${attempt ? ` — retry ${attempt}` : ""}…`);
             const cap = await callText([
-              { role: "system", content: `You are an elite social copywriter + trend analyst for ${platform}. You write hooks people stop scrolling for.\nTone: ${meta.tone}.\nAudience: ${audience} — ${AUDIENCE_GUIDE[audience]}\nVariation: ${angle.name}.\nOpener rule: ${angle.opener}\nStructure rule: ${angle.structure}\nThis post MUST be clearly distinct from any other variation in opening line, sentence structure, rhythm, and word choice.${craftRules}${avoidBlock}${retryNote}${learnedBlock}\nReturn ONLY JSON: {"caption":"...","hashtags":["..."],"trending":["..."],"predicted_engagement":0-100}.\n- "hashtags": platform-appropriate count (lowercase, no # prefix), tailored to caption + audience. Mix broad reach tags with 2-3 niche ones. No filler tags.\n- "trending": 3-5 currently-trending tags relevant to event topic + ${platform} (lowercase, no #).\n- "predicted_engagement": integer 0-100, your honest estimate of how this post will perform vs typical ${platform} content for ${audience} audience.` },
-              { role: "user", content: `Event: ${ev.name}. ${ev.description ?? ""}\nPhoto: ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}. Lead with the strongest hook you can write for this exact moment.` },
+              { role: "system", content: `You are an elite social copywriter + trend analyst for ${platform}. You write hooks people stop scrolling for.\nTone: ${meta.tone}.\nAudience: ${audience} — ${AUDIENCE_GUIDE[audience]}${voiceBlock}\nVariation: ${angle.name}.\nOpener rule: ${angle.opener}\nStructure rule: ${angle.structure}\nThis post MUST be clearly distinct from any other variation in opening line, sentence structure, rhythm, and word choice.${STORY_STRUCTURE}${craftRules}${avoidBlock}${retryNote}${learnedBlock}\nReturn ONLY JSON: {"caption":"...","hashtags":["..."],"trending":["..."],"predicted_engagement":0-100}.\n- "hashtags": platform-appropriate count (lowercase, no # prefix), tailored to caption + audience. Mix broad reach tags with 2-3 niche ones. No filler tags.\n- "trending": 3-5 currently-trending tags relevant to event topic + ${platform} (lowercase, no #).\n- "predicted_engagement": integer 0-100, your honest estimate of how this post will perform vs typical ${platform} content for ${audience} audience.` },
+              { role: "user", content: `Event: ${ev.name}. ${ev.description ?? ""}\nPhoto: ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}, brand voice: ${brandVoice}. Lead with the strongest hook you can write for this exact moment.` },
             ], 30000, 2, { log, agent: "content", step: `caption ${platform} v${v + 1}${attempt ? `r${attempt}` : ""}` });
 
             const parsed = parseJsonLoose(cap.choices?.[0]?.message?.content ?? "") as { caption?: string; hashtags?: string[]; trending?: string[]; predicted_engagement?: number };
@@ -427,11 +476,20 @@ let postsCreated = 0;
               };
               if (isDuplicate(candidate.caption, priorCaptions)) {
                 await log("content", `Duplicate detected for ${platform} v${v + 1} — regenerating`, "warn");
+                lastRejection = "it was too similar to another variation";
                 capJson = candidate;
                 continue;
               }
               if (attempt === 0 && hasClicheOpener(candidate.caption)) {
                 await log("content", `Weak/cliché hook for ${platform} v${v + 1} — regenerating`, "warn");
+                lastRejection = "it opened with a banned cliché";
+                capJson = candidate;
+                continue;
+              }
+              const unsafe = scanUnsafe(candidate.caption);
+              if (unsafe.length && attempt < 2) {
+                await log("content", `Brand-safety rejection for ${platform} v${v + 1} (${unsafe.length} flagged term${unsafe.length > 1 ? "s" : ""}) — regenerating`, "warn");
+                lastRejection = "it contained profanity or unsafe brand claims";
                 capJson = candidate;
                 continue;
               }
@@ -447,13 +505,27 @@ let postsCreated = 0;
         }
         priorCaptions.push(capJson.caption);
 
+        // Final brand-safety gate — nothing reaches the database unscrubbed.
+        const flagged = scanUnsafe(capJson.caption);
+        let finalCaption = capJson.caption;
+        if (flagged.length) {
+          finalCaption = scrubUnsafe(capJson.caption);
+          await log("content", `Brand-safety filter scrubbed ${flagged.length} unsafe term${flagged.length > 1 ? "s" : ""} from ${platform} v${v + 1}`, "warn");
+        }
+        const finalHashtags = safeHashtags(capJson.hashtags);
+        if (finalHashtags.length !== capJson.hashtags.length) {
+          await log("content", `Brand-safety filter removed ${capJson.hashtags.length - finalHashtags.length} unsafe hashtag(s) on ${platform} v${v + 1}`, "warn");
+        }
+        if (!finalCaption.trim()) finalCaption = fallbackPost(platform, pick).caption;
+
         await log("design", `Composing ${platform} card v${v + 1} (${meta.format})…`);
         const { error: insErr } = await admin.from("generated_posts").insert({
           event_id, user_id: user.id, source_asset_id: pick.id,
           platform, format: meta.format,
-          caption: capJson.caption, hashtags: capJson.hashtags,
+          caption: finalCaption, hashtags: finalHashtags,
           image_url: null, storage_path: pick.storage_path, storage_bucket: "event-media",
           audience,
+          brand_voice: brandVoice,
           best_time: meta.bestTime,
           predicted_engagement: capJson.predicted_engagement,
         });
