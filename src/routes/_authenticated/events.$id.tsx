@@ -133,6 +133,8 @@ function EventDetail() {
     setNotFound(false);
     setEv(e as Event | null);
     if (e && (e as Event).audience) setAudience(((e as Event).audience as AudienceId) ?? "general");
+    if (e && (e as Event).brand_voice) setBrandVoice(((e as Event).brand_voice as BrandVoiceId) ?? "balanced");
+    if (e) setVoiceNotes((e as Event).brand_voice_notes ?? "");
 
     // Mint fresh signed URLs from the permanent storage paths on every load,
     // so nothing ever depends on a stored (expiring) URL.
