@@ -28,7 +28,7 @@ type PlatformId = typeof PLATFORMS[number]["id"];
 
 export const Route = createFileRoute("/_authenticated/events/$id")({ component: EventDetail });
 
-type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
+type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null; brand_voice?: string | null; brand_voice_notes?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
 type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; storage_path?: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
