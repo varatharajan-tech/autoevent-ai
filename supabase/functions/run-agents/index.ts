@@ -417,6 +417,12 @@ let postsCreated = 0;
                 capJson = candidate;
                 continue;
               }
+              if (attempt === 0 && hasClicheOpener(candidate.caption)) {
+                await log("content", `Weak/cliché hook for ${platform} v${v + 1} — regenerating`, "warn");
+                capJson = candidate;
+                continue;
+              }
+
               capJson = candidate;
               accepted = true;
               await log("content", `Caption ${v + 1} accepted for ${platform} (${angle.name}) — predicted ${capJson.predicted_engagement}/100`, "success");
