@@ -270,7 +270,7 @@ function EventDetail() {
     setRunning(true);
     try {
       const { data, error } = await supabase.functions.invoke("run-agents", {
-        body: { event_id: ev.id, platforms: selected, audience },
+        body: { event_id: ev.id, platforms: selected, audience, brand_voice: brandVoice, brand_voice_notes: voiceNotes.trim() },
       });
       if (error) throw error;
       console.log("[AutoEvent] Agent output", data);
