@@ -44,6 +44,16 @@ const AUDIENCES = [
 ] as const;
 type AudienceId = typeof AUDIENCES[number]["id"];
 
+const BRAND_VOICES = [
+  { id: "balanced", label: "Balanced", hint: "Clear, human, confident" },
+  { id: "bold", label: "Bold", hint: "Punchy, high-conviction" },
+  { id: "warm", label: "Warm", hint: "People-first, sincere" },
+  { id: "playful", label: "Playful", hint: "Witty and light" },
+  { id: "premium", label: "Premium", hint: "Restrained, elegant" },
+  { id: "expert", label: "Expert", hint: "Analytical, credible" },
+] as const;
+type BrandVoiceId = typeof BRAND_VOICES[number]["id"];
+
 const MAX_DIM = 1920;
 const COMPRESS_THRESHOLD = 300 * 1024; // skip files already under 300KB
 const VIDEO_WARN_BYTES = 100 * 1024 * 1024; // warn for videos > 100MB
