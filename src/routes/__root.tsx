@@ -26,7 +26,9 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "google-site-verification", content: "oHaCfl1Xb35cpBsK0mJK3HzEnQVb4z54JJefvCfXWyI" },
       { title: "AutoEvent AI — Raw event media → ready-to-post content" },
+
       { name: "description", content: "An agentic AI engine that turns hundreds of event photos into branded, platform-ready posts in minutes." },
       { property: "og:title", content: "AutoEvent AI — Event media to social content" },
       { property: "og:description", content: "An agentic AI engine that turns hundreds of raw event photos and clips into branded, platform-ready posts and reels in minutes." },
