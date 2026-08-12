@@ -270,6 +270,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
                     key={a.id}
                     type="button"
                     onClick={() => toggle(a.id)}
+                    aria-pressed={picked}
+                    aria-label={`${picked ? "Deselect" : "Select"} ${isVideo ? "clip" : "photo"}${a.filename ? ` ${a.filename}` : ""}`}
                     className={`relative aspect-square rounded-md overflow-hidden border-2 transition ${picked ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-border"}`}
                   >
                     {a.public_url && (isVideo ? (
