@@ -13,7 +13,19 @@ import { toast } from "sonner";
 import { DeleteEventDialog } from "@/components/DeleteEventDialog";
 
 
-export const Route = createFileRoute("/_authenticated/dashboard")({ component: Dashboard });
+export const Route = createFileRoute("/_authenticated/dashboard")({
+  component: Dashboard,
+  head: () => ({
+    meta: [
+      { title: "Your events dashboard — AutoEvent AI" },
+      { name: "description", content: "Manage every event in one place: create events, track uploaded media, and see how many branded social posts each one has generated." },
+      { property: "og:title", content: "Your events dashboard — AutoEvent AI" },
+      { property: "og:description", content: "Create events, upload media, and track AI-generated social posts from a single dashboard." },
+      { property: "og:type", content: "website" },
+      { name: "robots", content: "noindex" },
+    ],
+  }),
+});
 
 type Event = {
   id: string; name: string; description: string | null; status: string;

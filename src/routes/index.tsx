@@ -9,7 +9,11 @@ export const Route = createFileRoute("/")({
     meta: [
       { title: "AutoEvent AI — Event photos to ready-to-post content" },
       { name: "description", content: "Drop in raw event media. Get top picks, captions, and branded social posts in minutes — not hours." },
+      { property: "og:title", content: "AutoEvent AI — Event photos to ready-to-post content" },
+      { property: "og:description", content: "Drop in raw event media. Get top picks, captions, and branded social posts in minutes — not hours." },
+      { property: "og:url", content: "https://autoenvent-ai.lovable.app/" },
     ],
+    links: [{ rel: "canonical", href: "https://autoenvent-ai.lovable.app/" }],
   }),
 });
 

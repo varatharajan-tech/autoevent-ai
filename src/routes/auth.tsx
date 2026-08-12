@@ -12,7 +12,17 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
   validateSearch: (s: Record<string, unknown>): { next?: string } =>
     typeof s['next'] === "string" ? { next: s['next'] } : {},
-  head: () => ({ meta: [{ title: "Sign in — AutoEvent AI" }] }),
+  head: () => ({
+    meta: [
+      { title: "Sign in — AutoEvent AI" },
+      { name: "description", content: "Sign in or create your AutoEvent AI account to turn raw event photos and clips into branded, platform-ready posts and reels in minutes." },
+      { property: "og:title", content: "Sign in to AutoEvent AI" },
+      { property: "og:description", content: "Access your events and turn raw event media into branded posts and reels in minutes." },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://autoenvent-ai.lovable.app/auth" },
+    ],
+    links: [{ rel: "canonical", href: "https://autoenvent-ai.lovable.app/auth" }],
+  }),
 });
 
 /** Only same-origin relative paths are allowed as a post-login destination. */

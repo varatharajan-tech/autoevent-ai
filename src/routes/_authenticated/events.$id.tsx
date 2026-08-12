@@ -26,7 +26,19 @@ const PLATFORMS = [
 ] as const;
 type PlatformId = typeof PLATFORMS[number]["id"];
 
-export const Route = createFileRoute("/_authenticated/events/$id")({ component: EventDetail });
+export const Route = createFileRoute("/_authenticated/events/$id")({
+  component: EventDetail,
+  head: () => ({
+    meta: [
+      { title: "Event workspace — AutoEvent AI" },
+      { name: "description", content: "Upload event photos and clips, run the AI agents, review top picks, edit captions, and export branded posts and reels for this event." },
+      { property: "og:title", content: "Event workspace — AutoEvent AI" },
+      { property: "og:description", content: "Upload media, run the agents, and export branded posts and reels for your event." },
+      { property: "og:type", content: "website" },
+      { name: "robots", content: "noindex" },
+    ],
+  }),
+});
 
 type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
