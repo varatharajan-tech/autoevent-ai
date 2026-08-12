@@ -28,10 +28,34 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "AutoEvent AI — Raw event media → ready-to-post content" },
       { name: "description", content: "An agentic AI engine that turns hundreds of event photos into branded, platform-ready posts in minutes." },
-      { property: "og:title", content: "AutoEvent AI" },
-      { property: "og:description", content: "Raw event media → ready-to-post content, automatically." },
+      { property: "og:title", content: "AutoEvent AI — Event media to social content" },
+      { property: "og:description", content: "An agentic AI engine that turns hundreds of raw event photos and clips into branded, platform-ready posts and reels in minutes." },
       { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "AutoEvent AI" },
       { name: "twitter:card", content: "summary_large_image" },
+    ],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "WebSite",
+              name: "AutoEvent AI",
+              url: "https://autoenvent-ai.lovable.app",
+              publisher: { "@id": "https://autoenvent-ai.lovable.app/#organization" },
+            },
+            {
+              "@type": "Organization",
+              "@id": "https://autoenvent-ai.lovable.app/#organization",
+              name: "AutoEvent AI",
+              url: "https://autoenvent-ai.lovable.app",
+              logo: "https://autoenvent-ai.lovable.app/favicon.png",
+            },
+          ],
+        }),
+      },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
