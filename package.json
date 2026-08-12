@@ -12,7 +12,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@cloudflare/vite-plugin": "^1.25.5",
+    "@cloudflare/vite-plugin": "^1.52.0",
     "@hookform/resolvers": "^5.2.2",
     "@lovable.dev/cloud-auth-js": "^1.1.2",
     "@lovable.dev/mcp-js": "^0.26.1",
@@ -93,12 +93,16 @@
     "seroval": "^1.6.2",
     "seroval-plugins": "^1.6.2",
     "js-yaml": "^4.3.1",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "ws": "^8.21.3",
+    "sharp": "^0.35.3"
   },
   "resolutions": {
     "seroval": "^1.6.2",
     "seroval-plugins": "^1.6.2",
     "js-yaml": "^4.3.1",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "ws": "^8.21.3",
+    "sharp": "^0.35.3"
   }
 }
