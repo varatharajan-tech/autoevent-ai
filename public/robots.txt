@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /events/
+
+Sitemap: https://autoenvent-ai.lovable.app/sitemap.xml
