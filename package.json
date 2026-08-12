@@ -15,7 +15,7 @@
     "@cloudflare/vite-plugin": "^1.52.0",
     "@hookform/resolvers": "^5.2.2",
     "@lovable.dev/cloud-auth-js": "^1.1.2",
-    "@lovable.dev/mcp-js": "^0.26.1",
+    "@lovable.dev/mcp-js": "^0.26.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",
@@ -95,7 +95,8 @@
     "js-yaml": "^4.3.1",
     "undici": "^7.29.0",
     "ws": "^8.21.3",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "@hono/node-server": "^2.1.0"
   },
   "resolutions": {
     "seroval": "^1.6.2",
@@ -103,6 +104,7 @@
     "js-yaml": "^4.3.1",
     "undici": "^7.29.0",
     "ws": "^8.21.3",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "@hono/node-server": "^2.1.0"
   }
 }
