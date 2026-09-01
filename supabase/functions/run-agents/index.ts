@@ -516,7 +516,11 @@ let postsCreated = 0;
           audience,
           best_time: meta.bestTime,
           predicted_engagement: capJson.predicted_engagement,
+          scene_description: visionByAsset[pick.id]?.scene_description ?? null,
+          key_moment: visionByAsset[pick.id]?.key_moment ?? null,
+          used_vision_ai: !!visionByAsset[pick.id],
         });
+
         if (insErr) {
           await log("design", `Insert failed: ${insErr.message}`, "error");
         } else {
