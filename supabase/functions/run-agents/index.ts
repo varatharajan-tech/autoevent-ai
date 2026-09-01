@@ -382,9 +382,62 @@ Deno.serve(async (req) => {
       const head = normalize(caption).slice(0, 60);
       return CLICHE_OPENERS.some((c) => head.startsWith(c) || head.includes(c));
     };
+    // ===== VISION PRE-PASS — the content agent actually looks at each photo =====
+    // One vision call per top pick; the analysis is reused across every
+    // platform/variation caption for that photo (keeps us inside the edge budget).
+    type VisionAnalysis = {
+      scene_description: string;
+      key_moment: string;
+      visible_details: string[];
+      people: string;
+      mood: string;
+    };
+    const visionByAsset: Record<string, VisionAnalysis> = {};
+    const VISION_MODEL = "google/gemini-3.7-flash";
+    const visionTargets = usePicks.slice(0, 5);
 
+    for (let i = 0; i < visionTargets.length; i++) {
+      const pick = visionTargets[i];
+      const idx = i + 1;
+      try {
+        await log("content", `Analysing photo ${idx} of ${visionTargets.length} with vision AI…`);
+        const bucket = (pick as any).storage_bucket || "event-media";
+        const { data: signed, error: sErr } = await admin.storage.from(bucket)
+          .createSignedUrl(pick.storage_path, 60 * 60);
+        if (sErr || !signed?.signedUrl) throw new Error(`signed url failed: ${sErr?.message ?? "none"}`);
+
+        const vResp = await callAI({
+          model: VISION_MODEL,
+          messages: [
+            { role: "system", content: `You are a photo analyst for a social media team. Look at the image and report only what is genuinely visible — people, actions, expressions, objects, setting, lighting, energy. Never invent details. Return ONLY JSON: {"scene_description":"2-3 sentences describing exactly what is happening in this photo","key_moment":"one short phrase naming the single most important thing happening","visible_details":["3-6 concrete, specific things visible in the frame"],"people":"who is in frame and what they are doing","mood":"one or two words"}. No markdown.` },
+            { role: "user", content: [
+              { type: "text", text: `Event context (for naming things only — describe the PHOTO, not the event): ${ev.name}. ${ev.description ?? ""}` },
+              { type: "image_url", image_url: { url: signed.signedUrl } },
+            ]},
+          ],
+        }, 45000, 2, { log, agent: "content", step: `vision photo ${idx}` });
+
+        const parsed = parseJsonLoose(vResp.choices?.[0]?.message?.content ?? "") as Partial<VisionAnalysis>;
+        if (!parsed.scene_description) throw new Error("empty vision analysis");
+        visionByAsset[pick.id] = {
+          scene_description: String(parsed.scene_description),
+          key_moment: String(parsed.key_moment ?? "").trim() || "Moment captured on camera",
+          visible_details: Array.isArray(parsed.visible_details) ? parsed.visible_details.map(String) : [],
+          people: String(parsed.people ?? ""),
+          mood: String(parsed.mood ?? ""),
+        };
+        await log("content", `✓ Photo ${idx}: "${visionByAsset[pick.id].key_moment}"`, "success");
+      } catch (e) {
+        console.error(`[content] vision failed for asset ${pick.id}`, e);
+        await log("content", `Vision unavailable for photo ${idx} — using context mode`, "warn");
+      }
+      if (i < visionTargets.length - 1) await new Promise((r) => setTimeout(r, 1000));
+    }
+    const visionCount = Object.keys(visionByAsset).length;
+    await log("content", `Vision analysis complete: ${visionCount}/${visionTargets.length} photo(s) analysed`, visionCount ? "success" : "warn");
 
 let postsCreated = 0;
+
     await Promise.all(requested.map(async (platform) => {
       const meta = PLATFORM_META[platform];
       const variants = Math.min(VARIATIONS_PER_PLATFORM, Math.max(usePicks.length, 1) === 1 ? 3 : VARIATIONS_PER_PLATFORM);
