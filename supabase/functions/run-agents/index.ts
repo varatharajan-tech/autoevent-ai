@@ -530,6 +530,10 @@ let postsCreated = 0;
       }
     }));
 
+    await log("content", `Content agent done — ${visionCount} photo(s) written from vision analysis, ${visionTargets.length - visionCount} from context mode`, "success");
+
+
+
     await admin.from("events").update({
       status: "ready", post_count: postsCreated, top_pick_count: topIds.length, asset_count: assets.length,
     }).eq("id", event_id);
