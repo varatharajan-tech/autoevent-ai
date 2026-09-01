@@ -463,7 +463,14 @@ let postsCreated = 0;
             await log("content", `Writing ${platform} variation ${v + 1}/${variants} (${angle.name})${attempt ? ` — retry ${attempt}` : ""}…`);
             const cap = await callText([
               { role: "system", content: `You are an elite social copywriter + trend analyst for ${platform}. You write hooks people stop scrolling for.\nTone: ${meta.tone}.\nAudience: ${audience} — ${AUDIENCE_GUIDE[audience]}\nVariation: ${angle.name}.\nOpener rule: ${angle.opener}\nStructure rule: ${angle.structure}\nThis post MUST be clearly distinct from any other variation in opening line, sentence structure, rhythm, and word choice.${craftRules}${avoidBlock}${retryNote}${learnedBlock}\nReturn ONLY JSON: {"caption":"...","hashtags":["..."],"trending":["..."],"predicted_engagement":0-100}.\n- "hashtags": platform-appropriate count (lowercase, no # prefix), tailored to caption + audience. Mix broad reach tags with 2-3 niche ones. No filler tags.\n- "trending": 3-5 currently-trending tags relevant to event topic + ${platform} (lowercase, no #).\n- "predicted_engagement": integer 0-100, your honest estimate of how this post will perform vs typical ${platform} content for ${audience} audience.` },
-              { role: "user", content: `Event: ${ev.name}. ${ev.description ?? ""}\nPhoto: ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}. Lead with the strongest hook you can write for this exact moment.` },
+              { role: "user", content: (() => {
+                const vis = visionByAsset[pick.id];
+                const photoBlock = vis
+                  ? `PHOTO — what the vision AI actually sees in this exact image (you MUST anchor the caption in these visible facts, and reference at least one of them explicitly):\n- Scene: ${vis.scene_description}\n- Key moment: ${vis.key_moment}\n- Visible details: ${vis.visible_details.join("; ") || "n/a"}\n- People: ${vis.people || "n/a"}\n- Mood: ${vis.mood || "n/a"}\nDo not describe anything that is not in this list. Write as someone who was standing there when this photo was taken.`
+                  : `PHOTO (limited analysis): ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.`;
+                return `Event: ${ev.name}. ${ev.description ?? ""}\n\n${photoBlock}\n\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}. Lead with the strongest hook you can write for this exact moment.`;
+              })() },
+
             ], 30000, 2, { log, agent: "content", step: `caption ${platform} v${v + 1}${attempt ? `r${attempt}` : ""}` });
 
             const parsed = parseJsonLoose(cap.choices?.[0]?.message?.content ?? "") as { caption?: string; hashtags?: string[]; trending?: string[]; predicted_engagement?: number };
