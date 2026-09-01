@@ -1004,6 +1004,15 @@ function InsightsDashboard({ posts }: { posts: Post[] }) {
         ))}
       </div>
 
+      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-soft">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground"><Eye className="size-3.5" />Written from photo analysis</div>
+        <div className="font-display text-3xl mt-1">
+          {posts.filter(p => p.used_vision_ai).length}/{posts.length}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">Posts where the AI actually looked at the photo before writing.</p>
+      </div>
+
+
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-card border border-border/60 rounded-xl p-4 shadow-soft">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Predicted vs Actual (per platform)</p>
