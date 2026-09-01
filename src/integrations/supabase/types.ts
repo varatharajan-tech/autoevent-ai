@@ -187,12 +187,15 @@ export type Database = {
           hashtags: string[] | null
           id: string
           image_url: string | null
+          key_moment: string | null
           metrics: Json
           platform: string
           predicted_engagement: number | null
+          scene_description: string | null
           source_asset_id: string | null
           storage_bucket: string
           storage_path: string | null
+          used_vision_ai: boolean
           user_id: string
         }
         Insert: {
@@ -207,12 +210,15 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_url?: string | null
+          key_moment?: string | null
           metrics?: Json
           platform: string
           predicted_engagement?: number | null
+          scene_description?: string | null
           source_asset_id?: string | null
           storage_bucket?: string
           storage_path?: string | null
+          used_vision_ai?: boolean
           user_id: string
         }
         Update: {
@@ -227,12 +233,15 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_url?: string | null
+          key_moment?: string | null
           metrics?: Json
           platform?: string
           predicted_engagement?: number | null
+          scene_description?: string | null
           source_asset_id?: string | null
           storage_bucket?: string
           storage_path?: string | null
+          used_vision_ai?: boolean
           user_id?: string
         }
         Relationships: [

@@ -43,7 +43,7 @@ export const Route = createFileRoute("/_authenticated/events/$id")({
 type Event = { id: string; name: string; description: string | null; status: string; brand_color: string; user_id: string; audience?: string | null };
 type Asset = { id: string; storage_path: string; public_url: string | null; quality_score: number | null; emotion: string | null; scene: string | null; ai_summary: string | null; is_top_pick: boolean; analyzed: boolean; filename: string | null; kind: string };
 type Metrics = { likes: number; shares: number; reach: number; comments: number };
-type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; storage_path?: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null };
+type Post = { id: string; platform: string; format: string; caption: string; hashtags: string[] | null; image_url: string | null; storage_path?: string | null; audience?: string | null; best_time?: string | null; predicted_engagement?: number | null; metrics?: Metrics | null; engagement_score?: number | null; scene_description?: string | null; key_moment?: string | null; used_vision_ai?: boolean | null };
 type Log = { id: string; agent: string; level: string; message: string; created_at: string };
 type PendingUpload = { id: string; name: string; previewUrl: string; status: "queued" | "uploading" | "processing" | "done" | "error"; progress: number; error?: string };
 
@@ -693,10 +693,28 @@ function PostCard({ post, eventId, eventName, brandColor }: { post: Post; eventI
           </div>
         ) : (
           <>
+            <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+              {post.used_vision_ai ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5">
+                  <Eye className="size-3" /> Vision AI
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted text-muted-foreground px-2 py-0.5">
+                  <Sparkles className="size-3" /> Context mode
+                </span>
+              )}
+              {post.key_moment && (
+                <span className="rounded-full bg-muted text-muted-foreground px-2 py-0.5">{post.key_moment}</span>
+              )}
+            </div>
             <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.caption}</p>
             {post.hashtags && post.hashtags.length > 0 && (
               <p className="mt-2 text-xs text-primary">{post.hashtags.map(h => `#${h.replace(/^#/, "")}`).join(" ")}</p>
             )}
+            {post.scene_description && (
+              <p className="mt-2 text-xs text-muted-foreground italic">What the AI saw: {post.scene_description}</p>
+            )}
+
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
               {post.best_time && (
                 <div className="flex items-center gap-1.5 text-muted-foreground"><Clock className="size-3.5" /> <span>{post.best_time}</span></div>
@@ -985,6 +1003,15 @@ function InsightsDashboard({ posts }: { posts: Post[] }) {
           </div>
         ))}
       </div>
+
+      <div className="bg-card border border-border/60 rounded-xl p-4 shadow-soft">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground"><Eye className="size-3.5" />Written from photo analysis</div>
+        <div className="font-display text-3xl mt-1">
+          {posts.filter(p => p.used_vision_ai).length}/{posts.length}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">Posts where the AI actually looked at the photo before writing.</p>
+      </div>
+
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-card border border-border/60 rounded-xl p-4 shadow-soft">

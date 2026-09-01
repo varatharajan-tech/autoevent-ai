@@ -382,9 +382,62 @@ Deno.serve(async (req) => {
       const head = normalize(caption).slice(0, 60);
       return CLICHE_OPENERS.some((c) => head.startsWith(c) || head.includes(c));
     };
+    // ===== VISION PRE-PASS — the content agent actually looks at each photo =====
+    // One vision call per top pick; the analysis is reused across every
+    // platform/variation caption for that photo (keeps us inside the edge budget).
+    type VisionAnalysis = {
+      scene_description: string;
+      key_moment: string;
+      visible_details: string[];
+      people: string;
+      mood: string;
+    };
+    const visionByAsset: Record<string, VisionAnalysis> = {};
+    const VISION_MODEL = "google/gemini-3.7-flash";
+    const visionTargets = usePicks.slice(0, 5);
 
+    for (let i = 0; i < visionTargets.length; i++) {
+      const pick = visionTargets[i];
+      const idx = i + 1;
+      try {
+        await log("content", `Analysing photo ${idx} of ${visionTargets.length} with vision AI…`);
+        const bucket = (pick as any).storage_bucket || "event-media";
+        const { data: signed, error: sErr } = await admin.storage.from(bucket)
+          .createSignedUrl(pick.storage_path, 60 * 60);
+        if (sErr || !signed?.signedUrl) throw new Error(`signed url failed: ${sErr?.message ?? "none"}`);
+
+        const vResp = await callAI({
+          model: VISION_MODEL,
+          messages: [
+            { role: "system", content: `You are a photo analyst for a social media team. Look at the image and report only what is genuinely visible — people, actions, expressions, objects, setting, lighting, energy. Never invent details. Return ONLY JSON: {"scene_description":"2-3 sentences describing exactly what is happening in this photo","key_moment":"one short phrase naming the single most important thing happening","visible_details":["3-6 concrete, specific things visible in the frame"],"people":"who is in frame and what they are doing","mood":"one or two words"}. No markdown.` },
+            { role: "user", content: [
+              { type: "text", text: `Event context (for naming things only — describe the PHOTO, not the event): ${ev.name}. ${ev.description ?? ""}` },
+              { type: "image_url", image_url: { url: signed.signedUrl } },
+            ]},
+          ],
+        }, 45000, 2, { log, agent: "content", step: `vision photo ${idx}` });
+
+        const parsed = parseJsonLoose(vResp.choices?.[0]?.message?.content ?? "") as Partial<VisionAnalysis>;
+        if (!parsed.scene_description) throw new Error("empty vision analysis");
+        visionByAsset[pick.id] = {
+          scene_description: String(parsed.scene_description),
+          key_moment: String(parsed.key_moment ?? "").trim() || "Moment captured on camera",
+          visible_details: Array.isArray(parsed.visible_details) ? parsed.visible_details.map(String) : [],
+          people: String(parsed.people ?? ""),
+          mood: String(parsed.mood ?? ""),
+        };
+        await log("content", `✓ Photo ${idx}: "${visionByAsset[pick.id].key_moment}"`, "success");
+      } catch (e) {
+        console.error(`[content] vision failed for asset ${pick.id}`, e);
+        await log("content", `Vision unavailable for photo ${idx} — using context mode`, "warn");
+      }
+      if (i < visionTargets.length - 1) await new Promise((r) => setTimeout(r, 1000));
+    }
+    const visionCount = Object.keys(visionByAsset).length;
+    await log("content", `Vision analysis complete: ${visionCount}/${visionTargets.length} photo(s) analysed`, visionCount ? "success" : "warn");
 
 let postsCreated = 0;
+
     await Promise.all(requested.map(async (platform) => {
       const meta = PLATFORM_META[platform];
       const variants = Math.min(VARIATIONS_PER_PLATFORM, Math.max(usePicks.length, 1) === 1 ? 3 : VARIATIONS_PER_PLATFORM);
@@ -410,7 +463,14 @@ let postsCreated = 0;
             await log("content", `Writing ${platform} variation ${v + 1}/${variants} (${angle.name})${attempt ? ` — retry ${attempt}` : ""}…`);
             const cap = await callText([
               { role: "system", content: `You are an elite social copywriter + trend analyst for ${platform}. You write hooks people stop scrolling for.\nTone: ${meta.tone}.\nAudience: ${audience} — ${AUDIENCE_GUIDE[audience]}\nVariation: ${angle.name}.\nOpener rule: ${angle.opener}\nStructure rule: ${angle.structure}\nThis post MUST be clearly distinct from any other variation in opening line, sentence structure, rhythm, and word choice.${craftRules}${avoidBlock}${retryNote}${learnedBlock}\nReturn ONLY JSON: {"caption":"...","hashtags":["..."],"trending":["..."],"predicted_engagement":0-100}.\n- "hashtags": platform-appropriate count (lowercase, no # prefix), tailored to caption + audience. Mix broad reach tags with 2-3 niche ones. No filler tags.\n- "trending": 3-5 currently-trending tags relevant to event topic + ${platform} (lowercase, no #).\n- "predicted_engagement": integer 0-100, your honest estimate of how this post will perform vs typical ${platform} content for ${audience} audience.` },
-              { role: "user", content: `Event: ${ev.name}. ${ev.description ?? ""}\nPhoto: ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}. Lead with the strongest hook you can write for this exact moment.` },
+              { role: "user", content: (() => {
+                const vis = visionByAsset[pick.id];
+                const photoBlock = vis
+                  ? `PHOTO — what the vision AI actually sees in this exact image (you MUST anchor the caption in these visible facts, and reference at least one of them explicitly):\n- Scene: ${vis.scene_description}\n- Key moment: ${vis.key_moment}\n- Visible details: ${vis.visible_details.join("; ") || "n/a"}\n- People: ${vis.people || "n/a"}\n- Mood: ${vis.mood || "n/a"}\nDo not describe anything that is not in this list. Write as someone who was standing there when this photo was taken.`
+                  : `PHOTO (limited analysis): ${pick.ai_summary ?? pick.scene ?? "event moment"}. Scene: ${pick.scene ?? "n/a"}. Emotion: ${pick.emotion ?? "n/a"}.`;
+                return `Event: ${ev.name}. ${ev.description ?? ""}\n\n${photoBlock}\n\nWrite variation #${v + 1} (${angle.name}) for ${platform}, audience: ${audience}. Lead with the strongest hook you can write for this exact moment.`;
+              })() },
+
             ], 30000, 2, { log, agent: "content", step: `caption ${platform} v${v + 1}${attempt ? `r${attempt}` : ""}` });
 
             const parsed = parseJsonLoose(cap.choices?.[0]?.message?.content ?? "") as { caption?: string; hashtags?: string[]; trending?: string[]; predicted_engagement?: number };
@@ -456,7 +516,11 @@ let postsCreated = 0;
           audience,
           best_time: meta.bestTime,
           predicted_engagement: capJson.predicted_engagement,
+          scene_description: visionByAsset[pick.id]?.scene_description ?? null,
+          key_moment: visionByAsset[pick.id]?.key_moment ?? null,
+          used_vision_ai: !!visionByAsset[pick.id],
         });
+
         if (insErr) {
           await log("design", `Insert failed: ${insErr.message}`, "error");
         } else {
@@ -465,6 +529,10 @@ let postsCreated = 0;
         }
       }
     }));
+
+    await log("content", `Content agent done — ${visionCount} photo(s) written from vision analysis, ${visionTargets.length - visionCount} from context mode`, "success");
+
+
 
     await admin.from("events").update({
       status: "ready", post_count: postsCreated, top_pick_count: topIds.length, asset_count: assets.length,
