@@ -54,62 +54,92 @@ export type Database = {
       }
       assets: {
         Row: {
+          ai_reject_reason: string | null
+          ai_scene_label: string | null
+          ai_score: number | null
           ai_summary: string | null
           analyzed: boolean
+          brand_moment: boolean | null
+          composition_quality: number | null
           created_at: string
           emotion: string | null
+          emotional_energy: number | null
           event_id: string
+          event_relevance: number | null
           filename: string | null
           has_faces: boolean | null
           height: number | null
           id: string
           is_top_pick: boolean
           kind: string
+          people_engagement: number | null
           public_url: string | null
           quality_score: number | null
           scene: string | null
+          scoring_method: string | null
           storage_bucket: string
           storage_path: string
+          storytelling_value: number | null
           user_id: string
           width: number | null
         }
         Insert: {
+          ai_reject_reason?: string | null
+          ai_scene_label?: string | null
+          ai_score?: number | null
           ai_summary?: string | null
           analyzed?: boolean
+          brand_moment?: boolean | null
+          composition_quality?: number | null
           created_at?: string
           emotion?: string | null
+          emotional_energy?: number | null
           event_id: string
+          event_relevance?: number | null
           filename?: string | null
           has_faces?: boolean | null
           height?: number | null
           id?: string
           is_top_pick?: boolean
           kind?: string
+          people_engagement?: number | null
           public_url?: string | null
           quality_score?: number | null
           scene?: string | null
+          scoring_method?: string | null
           storage_bucket?: string
           storage_path: string
+          storytelling_value?: number | null
           user_id: string
           width?: number | null
         }
         Update: {
+          ai_reject_reason?: string | null
+          ai_scene_label?: string | null
+          ai_score?: number | null
           ai_summary?: string | null
           analyzed?: boolean
+          brand_moment?: boolean | null
+          composition_quality?: number | null
           created_at?: string
           emotion?: string | null
+          emotional_energy?: number | null
           event_id?: string
+          event_relevance?: number | null
           filename?: string | null
           has_faces?: boolean | null
           height?: number | null
           id?: string
           is_top_pick?: boolean
           kind?: string
+          people_engagement?: number | null
           public_url?: string | null
           quality_score?: number | null
           scene?: string | null
+          scoring_method?: string | null
           storage_bucket?: string
           storage_path?: string
+          storytelling_value?: number | null
           user_id?: string
           width?: number | null
         }
