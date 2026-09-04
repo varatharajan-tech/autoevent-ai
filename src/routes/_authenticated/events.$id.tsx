@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Upload, Sparkles, Image as ImageIcon, Star, Download, Loader2, CheckCircle2, AlertCircle, Instagram, Linkedin, Twitter, Facebook, Pencil, Save, X, RefreshCw, Clock, TrendingUp, Heart, Share2, Eye, MessageCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, Upload, Sparkles, Image as ImageIcon, Star, Download, Loader2, CheckCircle2, AlertCircle, Instagram, Linkedin, Twitter, Facebook, Pencil, Save, X, RefreshCw, Heart, Share2, Eye, MessageCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DeleteEventDialog } from "@/components/DeleteEventDialog";
 
@@ -693,39 +693,10 @@ function PostCard({ post, eventId, eventName, brandColor }: { post: Post; eventI
           </div>
         ) : (
           <>
-            <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-              {post.used_vision_ai ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5">
-                  <Eye className="size-3" /> Vision AI
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted text-muted-foreground px-2 py-0.5">
-                  <Sparkles className="size-3" /> Context mode
-                </span>
-              )}
-              {post.key_moment && (
-                <span className="rounded-full bg-muted text-muted-foreground px-2 py-0.5">{post.key_moment}</span>
-              )}
-            </div>
             <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.caption}</p>
             {post.hashtags && post.hashtags.length > 0 && (
               <p className="mt-2 text-xs text-primary">{post.hashtags.map(h => `#${h.replace(/^#/, "")}`).join(" ")}</p>
             )}
-            {post.scene_description && (
-              <p className="mt-2 text-xs text-muted-foreground italic">What the AI saw: {post.scene_description}</p>
-            )}
-
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              {post.best_time && (
-                <div className="flex items-center gap-1.5 text-muted-foreground"><Clock className="size-3.5" /> <span>{post.best_time}</span></div>
-              )}
-              {typeof post.predicted_engagement === "number" && (
-                <div className="flex items-center gap-1.5 text-muted-foreground"><TrendingUp className="size-3.5" /> <span>Predicted {Math.round(post.predicted_engagement)}/100</span></div>
-              )}
-              {post.audience && (
-                <div className="col-span-2 text-muted-foreground capitalize">Audience: {post.audience}</div>
-              )}
-            </div>
             <MetricsEditor post={post} />
             <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
