@@ -511,32 +511,149 @@ function EventDetail() {
   );
 }
 
+function scoreBadgeClass(score: number) {
+  if (score >= 8) return "bg-success text-white";
+  if (score >= 6) return "bg-amber-500 text-white";
+  if (score >= 4) return "bg-muted-foreground text-white";
+  return "bg-destructive text-white";
+}
+
 function AssetCard({ asset }: { asset: Asset }) {
+  const [open, setOpen] = useState(false);
+  const score = asset.ai_score ?? asset.quality_score;
+  const rejected = !!asset.ai_reject_reason;
+  const label = asset.ai_scene_label ?? asset.scene;
+  const dims = [
+    { label: "Energy", value: asset.emotional_energy, color: "bg-orange-400" },
+    { label: "Story", value: asset.storytelling_value, color: "bg-primary" },
+    { label: "People", value: asset.people_engagement, color: "bg-blue-400" },
+    { label: "Relevance", value: asset.event_relevance, color: "bg-success" },
+    { label: "Composition", value: asset.composition_quality, color: "bg-muted-foreground" },
+  ].filter(d => typeof d.value === "number");
+
   return (
-    <div className="relative aspect-square rounded-lg overflow-hidden bg-muted group border border-border/60">
-      {asset.public_url && (asset.kind === "video" ? (
-        <video src={asset.public_url} muted playsInline preload="metadata" controls className="size-full object-cover" />
-      ) : (
-        <img src={asset.public_url} alt={asset.filename ?? "asset"} className="size-full object-cover" loading="lazy" />
-      ))}
-      {asset.is_top_pick && (
-        <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full flex items-center gap-1 font-medium">
-          <Star className="size-3 fill-current" /> Pick
-        </div>
-      )}
-      {asset.quality_score !== null && (
-        <div className="absolute top-2 right-2 bg-ink/80 text-paper text-xs px-2 py-1 rounded-full font-mono">
-          {Number(asset.quality_score).toFixed(1)}
-        </div>
-      )}
-      {asset.ai_summary && (
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/90 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-          <p className="text-paper text-xs line-clamp-3">{asset.ai_summary}</p>
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-label={`Photo ${asset.filename ?? ""} — view AI score breakdown`}
+        className={`relative aspect-square rounded-lg overflow-hidden bg-muted group border text-left ${rejected ? "border-destructive" : "border-border/60"}`}
+      >
+        {asset.public_url && (asset.kind === "video" ? (
+          <video src={asset.public_url} muted playsInline preload="metadata" className="size-full object-cover" />
+        ) : (
+          <img src={asset.public_url} alt={asset.filename ?? "asset"} className="size-full object-cover" loading="lazy" />
+        ))}
+        {asset.is_top_pick && (
+          <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full flex items-center gap-1 font-medium">
+            <Star className="size-3 fill-current" /> Pick
+          </div>
+        )}
+        {score !== null && score !== undefined && (
+          <div className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-full font-mono flex items-center gap-1 ${scoreBadgeClass(Number(score))}`}>
+            <Star className="size-3 fill-current" />{Number(score).toFixed(1)}
+          </div>
+        )}
+        {rejected && (
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 bg-destructive/85 text-white text-xs px-2 py-1 text-center">
+            Low quality
+          </div>
+        )}
+        {label && (
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/90 to-transparent px-2 pt-6 pb-2">
+            <p className="text-paper text-xs font-medium truncate">{label}</p>
+          </div>
+        )}
+      </button>
+
+      {open && (
+        <div className="rounded-xl border border-border/60 bg-card p-3 space-y-2">
+          <h4 className="text-sm font-semibold">Why AI selected this photo</h4>
+          {score !== null && score !== undefined && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">AI score</span>
+              <div className="flex items-center gap-2">
+                <div className="w-24 bg-muted rounded-full h-1.5">
+                  <div className="bg-primary h-1.5 rounded-full" style={{ width: `${(Number(score) / 10) * 100}%` }} />
+                </div>
+                <span className="text-xs font-bold text-primary">{Number(score).toFixed(1)}/10</span>
+              </div>
+            </div>
+          )}
+          {dims.map(d => (
+            <div key={d.label} className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground w-24 shrink-0">{d.label}</span>
+              <div className="flex items-center gap-2 flex-1">
+                <div className="flex-1 bg-muted rounded-full h-1">
+                  <div className={`${d.color} h-1 rounded-full`} style={{ width: `${((d.value as number) / 10) * 100}%` }} />
+                </div>
+                <span className="text-xs text-muted-foreground w-5 text-right">{d.value}</span>
+              </div>
+            </div>
+          ))}
+          {asset.brand_moment && (
+            <span className="inline-block text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Brand visible in photo</span>
+          )}
+          {asset.ai_reject_reason && (
+            <p className="text-xs text-destructive">Filtered out: {asset.ai_reject_reason}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Scored by: {asset.scoring_method === "vision_ai" ? "Vision AI" : "Technical analysis"}
+          </p>
+          {asset.ai_summary && <p className="text-xs text-muted-foreground">{asset.ai_summary}</p>}
         </div>
       )}
     </div>
   );
 }
+
+function MediaIntelligenceReport({ assets }: { assets: Asset[] }) {
+  if (assets.length === 0) return null;
+  const scored = assets.filter(a => a.ai_score !== null && a.ai_score !== undefined);
+  const stats = {
+    total: assets.length,
+    visionScored: assets.filter(a => a.scoring_method === "vision_ai").length,
+    topPicks: assets.filter(a => a.is_top_pick).length,
+    rejected: assets.filter(a => a.ai_reject_reason).length,
+    brandVisible: assets.filter(a => a.brand_moment).length,
+    highEnergy: assets.filter(a => (a.emotional_energy ?? 0) >= 8).length,
+    avgScore: scored.length ? scored.reduce((s, a) => s + Number(a.ai_score), 0) / scored.length : 0,
+  };
+  const cards = [
+    { value: `${stats.visionScored}/${stats.total}`, label: "Photos scored by Vision AI", tone: "text-primary bg-primary/5 border-primary/20" },
+    { value: `${stats.topPicks}`, label: "Best moments selected", tone: "text-success bg-success/5 border-success/20" },
+    { value: `${stats.rejected}`, label: "Low-quality photos filtered", tone: "text-destructive bg-destructive/5 border-destructive/20" },
+    { value: `${stats.highEnergy}`, label: "High energy moments found", tone: "text-orange-500 bg-orange-500/5 border-orange-500/20" },
+  ];
+  return (
+    <div className="bg-card border border-border/60 rounded-xl p-5 shadow-soft space-y-4">
+      <h3 className="font-semibold">Media Intelligence Report</h3>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {cards.map(c => (
+          <div key={c.label} className={`rounded-xl p-3 border ${c.tone}`}>
+            <p className="text-2xl font-bold">{c.value}</p>
+            <p className="text-xs mt-0.5">{c.label}</p>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Average photo quality</span>
+          <span className="font-bold">{stats.avgScore.toFixed(1)}/10</span>
+        </div>
+        <div className="w-full bg-muted rounded-full h-2">
+          <div className="bg-primary h-2 rounded-full" style={{ width: `${(stats.avgScore / 10) * 100}%` }} />
+        </div>
+      </div>
+      {stats.brandVisible > 0 && (
+        <p className="text-xs text-primary bg-primary/5 px-3 py-2 rounded-lg">
+          Brand elements visible in {stats.brandVisible} photo{stats.brandVisible > 1 ? "s" : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
 
 function PostCard({ post, eventId, eventName, brandColor }: { post: Post; eventId: string; eventName: string; brandColor: string }) {
   const ratioClass = post.format === "9:16" ? "aspect-[9/16]" : post.format === "16:9" ? "aspect-[16/9]" : "aspect-square";
