@@ -208,71 +208,187 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ posts_created: 0, top_picks: 0, message: "No assets" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ===== MEDIA AGENT — download bytes, send as base64 data URL =====
+    // ===== MEDIA AGENT — 6-dimension Vision AI scoring + intelligent selection =====
+    const SCORING_MODEL = "google/gemini-3.7-flash";
+    const eventType = (ev as any).event_type || "brand activation";
+    const brandName = (ev as any).brand_name || ev.name;
+
+    type VisionScore = {
+      emotional_energy: number | null;
+      event_relevance: number | null;
+      people_engagement: number | null;
+      composition_quality: number | null;
+      brand_moment: boolean | null;
+      storytelling_value: number | null;
+      ai_score: number;
+      ai_scene_label: string;
+      ai_reject_reason: string | null;
+      should_reject: boolean;
+    };
+
+    const clamp10 = (n: unknown, d = 5) => {
+      const v = typeof n === "number" && Number.isFinite(n) ? n : d;
+      return Math.max(1, Math.min(10, Math.round(v)));
+    };
+
+    // Technical fallback — never let the pipeline stop because vision failed
+    function technicalFallbackScore(a: any): VisionScore {
+      const base = typeof a.quality_score === "number" ? a.quality_score : 5;
+      const faceBoost = a.has_faces ? 0.5 : 0;
+      return {
+        emotional_energy: null, event_relevance: null, people_engagement: null,
+        composition_quality: null, brand_moment: null, storytelling_value: null,
+        ai_score: Math.round(Math.min(10, base + faceBoost) * 10) / 10,
+        ai_scene_label: a.scene || a.filename || "Uploaded photo",
+        ai_reject_reason: null,
+        should_reject: false,
+      };
+    }
+
+    const SCORING_SYSTEM = `You are an expert event photography curator and social media content strategist. Score the photo for its suitability as social media marketing content.
+
+SCORING CRITERIA (1-10 each):
+1. emotional_energy — 10 electrifying visible joy/excitement/pride, 7 positive engaged expressions, 4 neutral/flat, 1 negative/bored/no people.
+2. event_relevance — 10 core event moment (award, speaker, crowd reaction), 7 supporting moment (networking, registration), 4 peripheral (setup, empty stage, backs of heads), 1 irrelevant.
+3. people_engagement — 10 multiple people with visible faces genuinely interacting, 7 one person face clear and engaged, 4 people present faces unclear, 1 no people or only backs/silhouettes.
+4. composition_quality — 10 professional framing/lighting/sharp subject, 7 good with minor issues, 4 acceptable but crowded or poorly lit, 1 severely blurry/dark/badly framed.
+5. brand_moment (true/false) — true only when a brand logo, banner or product is clearly visible.
+6. storytelling_value — 10 tells a story by itself with viral potential, 7 good supporting content, 4 generic filler, 1 would not post anywhere.
+
+REJECT (should_reject true, with a short ai_reject_reason) if: severely blurry (composition_quality < 3), no people at all AND event_relevance < 4, completely dark or overexposed, or clearly inappropriate content. Otherwise should_reject is false and ai_reject_reason is null.
+
+ai_scene_label: a 3-5 word label of what is in the photo, e.g. "Award ceremony on stage", "Crowd applauding speaker", "Networking lunch group", "Panel discussion".
+
+Return ONLY JSON: {"emotional_energy":0,"event_relevance":0,"people_engagement":0,"composition_quality":0,"brand_moment":false,"storytelling_value":0,"ai_scene_label":"...","ai_reject_reason":null,"should_reject":false}. No markdown.`;
+
     const skipScoring = reqBody.replace_only_selected && assets.every(a => (a as any).analyzed);
     if (skipScoring) {
       await log("media", "Reusing existing analysis (per-platform regenerate)", "info");
     } else {
-      await log("media", `Analyzing ${assets.length} photo${assets.length > 1 ? "s" : ""}`);
+      await log("media", `Starting Vision AI scoring for all ${assets.length} photo${assets.length > 1 ? "s" : ""}…`);
 
+      let scoredIndex = 0;
       async function scoreOne(a: Asset) {
+        const n = ++scoredIndex;
+        let result: VisionScore | null = null;
+        let scoringMethod = "technical_fallback";
         try {
-          // Use a fresh signed URL — avoids loading full image bytes into worker memory
-          const { data: signed, error: sErr } = await admin.storage.from("event-media").createSignedUrl(a.storage_path, 60 * 60 * 24 * 7);
+          await log("media", `Scoring photo ${n} of ${assets.length}…`);
+          const bucket = (a as any).storage_bucket || "event-media";
+          const { data: signed, error: sErr } = await admin.storage.from(bucket)
+            .createSignedUrl(a.storage_path, 60 * 60);
           if (sErr || !signed?.signedUrl) throw new Error(`signed url failed: ${sErr?.message ?? "none"}`);
-          const publicUrl = signed.signedUrl;
 
-          await log("media", `Scoring ${a.filename ?? "photo"} with Gemini…`);
           const resp = await callAI({
-            model: "google/gemini-2.5-flash",
+            model: SCORING_MODEL,
             messages: [
-              { role: "system", content: "You score event photos for social media. Return ONLY JSON: {\"quality\":0-10,\"has_faces\":bool,\"emotion\":\"joy|focus|crowd|calm|action\",\"scene\":\"short label\",\"summary\":\"one vivid sentence\"}. No markdown." },
+              { role: "system", content: SCORING_SYSTEM },
               { role: "user", content: [
-                { type: "text", text: `Event: ${ev.name}. ${ev.description ?? ""}\nScore this photo for social.` },
-                { type: "image_url", image_url: { url: publicUrl } },
+                { type: "text", text: `EVENT CONTEXT\n- Event: ${ev.name}\n- Type: ${eventType}\n- Brand: ${brandName}\n${ev.description ?? ""}` },
+                { type: "image_url", image_url: { url: signed.signedUrl } },
               ]},
             ],
-          }, 40000, 3, { log, agent: "media", step: `score ${a.filename ?? a.id.slice(0, 6)}` });
+          }, 40000, 2, { log, agent: "media", step: `score photo ${n}` });
 
-          const text = resp.choices?.[0]?.message?.content ?? "{}";
-          const parsed = parseJsonLoose(text) as { quality?: number; has_faces?: boolean; emotion?: string; scene?: string; summary?: string };
+          const parsed = parseJsonLoose(resp.choices?.[0]?.message?.content ?? "") as any;
+          if (!parsed || typeof parsed !== "object" || !parsed.ai_scene_label) throw new Error("empty scoring response");
 
-          await admin.from("assets").update({
-            quality_score: typeof parsed.quality === "number" ? parsed.quality : 5,
-            has_faces: !!parsed.has_faces,
-            emotion: parsed.emotion ?? null,
-            scene: parsed.scene ?? null,
-            ai_summary: parsed.summary ?? `Moment from ${ev.name}`,
-            analyzed: true,
-            public_url: null,
-          }).eq("id", a.id);
-          await log("media", `Scored ${a.filename}: ${parsed.quality ?? "?"}/10`);
+          const energy = clamp10(parsed.emotional_energy);
+          const relevance = clamp10(parsed.event_relevance);
+          const people = clamp10(parsed.people_engagement);
+          const comp = clamp10(parsed.composition_quality);
+          const story = clamp10(parsed.storytelling_value);
+          const composite = energy * 0.25 + story * 0.25 + people * 0.20 + relevance * 0.15 + comp * 0.15;
+
+          result = {
+            emotional_energy: energy,
+            event_relevance: relevance,
+            people_engagement: people,
+            composition_quality: comp,
+            brand_moment: !!parsed.brand_moment,
+            storytelling_value: story,
+            ai_score: Math.round(composite * 10) / 10,
+            ai_scene_label: String(parsed.ai_scene_label).slice(0, 80),
+            ai_reject_reason: parsed.should_reject ? String(parsed.ai_reject_reason ?? "Low quality") : null,
+            should_reject: !!parsed.should_reject,
+          };
+          scoringMethod = "vision_ai";
         } catch (e) {
-          await admin.from("assets").update({
-            quality_score: 5,
-            ai_summary: `Moment from ${ev.name}`,
-            analyzed: true,
-            public_url: null,
-          }).eq("id", a.id);
-
-          await log("media", `Fallback scored ${a.filename}: ${(e as Error).message}`, "warn");
+          console.error(`[media] vision scoring failed for ${a.id}`, e);
+          await log("media", `Photo ${n}: vision unavailable, using technical score`, "warn");
+          result = technicalFallbackScore(a);
         }
+
+        if (result.should_reject) {
+          await log("media", `Photo ${n}: rejected — ${result.ai_reject_reason}`, "warn");
+        }
+
+        await admin.from("assets").update({
+          ai_score: result.ai_score,
+          emotional_energy: result.emotional_energy,
+          event_relevance: result.event_relevance,
+          people_engagement: result.people_engagement,
+          composition_quality: result.composition_quality,
+          brand_moment: result.brand_moment,
+          storytelling_value: result.storytelling_value,
+          ai_scene_label: result.ai_scene_label,
+          ai_reject_reason: result.ai_reject_reason,
+          scoring_method: scoringMethod,
+          // keep legacy fields in sync so older UI + reel engine keep working
+          quality_score: result.ai_score,
+          has_faces: result.people_engagement !== null ? result.people_engagement >= 4 : (a as any).has_faces ?? null,
+          scene: result.ai_scene_label,
+          ai_summary: (a as any).ai_summary ?? `Moment from ${ev.name}`,
+          analyzed: true,
+          is_top_pick: false,
+          public_url: null,
+        }).eq("id", a.id);
       }
 
-      // Parallel batches of 3
+      // Parallel batches of 3 (rate-safe and far faster than a serial 800ms loop)
       const batchSize = 3;
       for (let i = 0; i < assets.length; i += batchSize) {
         await Promise.all(assets.slice(i, i + batchSize).map(scoreOne));
       }
     }
 
-    const { data: scored } = await admin.from("assets").select("*")
-      .eq("event_id", event_id).order("quality_score", { ascending: false, nullsFirst: false }).limit(5);
-    const topPicks = (scored ?? []) as (Asset & { quality_score: number; ai_summary: string; emotion: string; scene: string })[];
+    // ===== INTELLIGENT SELECTION — reject filter, AI score ranking, scene diversity =====
+    const { data: allScored } = await admin.from("assets").select("*")
+      .eq("event_id", event_id)
+      .order("ai_score", { ascending: false, nullsFirst: false });
+    const scoredRows = (allScored ?? []) as any[];
+    const visionScoredCount = scoredRows.filter(r => r.scoring_method === "vision_ai").length;
+    const rejectedCount = scoredRows.filter(r => r.ai_reject_reason).length;
+    const valid = scoredRows.filter(r => !r.ai_reject_reason);
+
+    const picked: any[] = [];
+    const labelCounts: Record<string, number> = {};
+    for (const r of valid) {
+      if (picked.length >= 5) break;
+      const label = (r.ai_scene_label ?? "").toLowerCase();
+      if ((labelCounts[label] ?? 0) < 2) {
+        picked.push(r);
+        labelCounts[label] = (labelCounts[label] ?? 0) + 1;
+      }
+    }
+    if (picked.length < 3) {
+      for (const r of valid) {
+        if (picked.length >= 5) break;
+        if (!picked.find(p => p.id === r.id)) picked.push(r);
+      }
+    }
+
+    const topPicks = picked as (Asset & { quality_score: number; ai_score: number; ai_summary: string; emotion: string; scene: string; ai_scene_label: string })[];
     const topIds = topPicks.map(t => t.id);
     await admin.from("assets").update({ is_top_pick: false }).eq("event_id", event_id);
     if (topIds.length) await admin.from("assets").update({ is_top_pick: true }).in("id", topIds);
-    await log("media", `Selected ${topIds.length} top picks`, "success");
+    await log(
+      "media",
+      `Vision AI selected ${topIds.length} top pick(s) from ${scoredRows.length} photo(s). ` +
+      `${rejectedCount} low-quality filtered out. ${visionScoredCount} scored by Vision AI.`,
+      "success",
+    );
+
 
     // Clear previous posts for this event so reruns produce a clean set.
     // When `replace_only_selected` is true (per-platform regenerate), only delete the requested platforms.
