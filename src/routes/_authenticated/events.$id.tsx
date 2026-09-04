@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Upload, Sparkles, Image as ImageIcon, Star, Download, Loader2, CheckCircle2, AlertCircle, Instagram, Linkedin, Twitter, Facebook, Pencil, Save, X, RefreshCw, Clock, TrendingUp, Heart, Share2, Eye, MessageCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, Upload, Sparkles, Image as ImageIcon, Star, Download, Loader2, CheckCircle2, AlertCircle, Instagram, Linkedin, Twitter, Facebook, Pencil, Save, X, RefreshCw, Heart, Share2, Eye, MessageCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DeleteEventDialog } from "@/components/DeleteEventDialog";
 
