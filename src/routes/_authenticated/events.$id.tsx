@@ -452,9 +452,11 @@ function EventDetail() {
               <TabsTrigger value="activity">Agent activity</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="insights" className="mt-6">
+            <TabsContent value="insights" className="mt-6 space-y-6">
+              <MediaIntelligenceReport assets={assets} />
               <InsightsDashboard posts={posts} />
             </TabsContent>
+
 
             <TabsContent value="picks" className="mt-6">
               {topPicks.length === 0 ? (
