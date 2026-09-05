@@ -387,7 +387,14 @@ type Segment =
   | { kind: "fade-in"; frames: number }
   | { kind: "zoom-burst"; slide: LoadedSlide; frames: number }
   | { kind: "closing"; slide: LoadedSlide; frames: number;
-      eventName: string; brandColor: string };
+      eventName: string; brandColor: string }
+  // ─── AI-planned segments (Drawback 3) ───────────────────────────────────
+  | { kind: "plan-scene"; slide: LoadedSlide; frames: number;
+      position: NarrativePosition; subtitle: string | null; showSubtitle: boolean;
+      sceneIdx: number; totalScenes: number; eventName: string }
+  | { kind: "clean-cut"; frames: number }
+  | { kind: "dramatic-fade"; frames: number }
+  | { kind: "smooth-slide"; slide: LoadedSlide; frames: number };
 
 function ensureVideoPlaying(s: LoadedSlide) {
   if (s.kind !== "video") return;
