@@ -675,13 +675,163 @@ function renderSegmentFrame(
   }
 }
 
+// ─── AI-planned reel (Drawback 3) ──────────────────────────────────────────
+async function generatePlannedReel(
+  input: ReelInput,
+  plan: ReelEditPlan,
+  onProgress: ReelProgress,
+): Promise<{ blob: Blob; durationSec: number }> {
+  const { headline, mood, platform, brandColor } = input;
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("Your browser does not support MediaRecorder. Try Chrome, Edge or Firefox.");
+  }
+  const platMeta = REEL_PLATFORMS.find(p => p.id === platform)!;
+  const accent = brandColor && /^#[0-9a-fA-F]{3,8}$/.test(brandColor) ? brandColor : "#7B2FBE";
+  const style = styleForMood(mood);
+  const eventName = input.eventName || headline;
+
+  // Load the media for each planned scene (fresh signed URLs come from the caller).
+  onProgress("Loading media…", 4);
+  const loadedScenes: { scene: ReelEditPlan["scenes"][number]; slide: LoadedSlide }[] = [];
+  for (let i = 0; i < plan.scenes.length; i++) {
+    const sc = plan.scenes[i];
+    try {
+      if (sc.asset.kind === "video") {
+        const v = await loadVideo(sc.asset.signedUrl);
+        loadedScenes.push({ scene: sc, slide: { kind: "video", el: v, srcW: v.videoWidth || W, srcH: v.videoHeight || H } });
+      } else {
+        const img = await loadImage(sc.asset.signedUrl);
+        loadedScenes.push({ scene: sc, slide: { kind: "image", el: img, srcW: img.width, srcH: img.height } });
+      }
+    } catch (e) { console.warn("[reelEngine] skipping planned scene", sc.asset.id, e); }
+    onProgress(`Loading ${i + 1}/${plan.scenes.length}`, 4 + Math.round(((i + 1) / plan.scenes.length) * 18));
+  }
+  if (loadedScenes.length === 0) throw new Error("Could not load any media (CORS or network).");
+
+  const TRANS_FRAMES: Record<TransitionType, number> = {
+    flash: Math.round(0.2 * FPS),
+    zoom_burst: Math.round(0.3 * FPS),
+    cinematic_fade: Math.round(0.4 * FPS),
+    smooth_slide: Math.round(0.35 * FPS),
+    clean_cut: Math.round(0.1 * FPS),
+    dramatic_fade: Math.round(0.7 * FPS),
+  };
+
+  const timeline: Segment[] = [];
+  loadedScenes.forEach((entry, i) => {
+    const { scene, slide } = entry;
+    timeline.push({
+      kind: "plan-scene", slide,
+      frames: Math.max(1, Math.round(scene.duration * FPS)),
+      position: scene.position,
+      subtitle: scene.subtitleText,
+      showSubtitle: scene.showSubtitle,
+      sceneIdx: i,
+      totalScenes: loadedScenes.length,
+      eventName,
+    });
+    const next = loadedScenes[i + 1];
+    if (!next) return;
+    const frames = TRANS_FRAMES[scene.transition] ?? TRANS_FRAMES.cinematic_fade;
+    switch (scene.transition) {
+      case "flash":       timeline.push({ kind: "flash", frames }); break;
+      case "zoom_burst":  timeline.push({ kind: "zoom-burst", slide: next.slide, frames }); break;
+      case "smooth_slide":timeline.push({ kind: "smooth-slide", slide: next.slide, frames }); break;
+      case "clean_cut":   timeline.push({ kind: "clean-cut", frames }); break;
+      case "dramatic_fade": timeline.push({ kind: "dramatic-fade", frames }); break;
+      case "cinematic_fade":
+      default:
+        timeline.push({ kind: "fade-out", frames: Math.round(frames / 2) });
+        timeline.push({ kind: "fade-in",  frames: Math.round(frames / 2) });
+    }
+  });
+  // Closing fade to black
+  timeline.push({ kind: "dramatic-fade", frames: Math.round(0.8 * FPS) });
+
+  let totalFrames = timeline.reduce((s, seg) => s + seg.frames, 0);
+  const maxFrames = Math.floor(platMeta.maxDur * FPS);
+  if (totalFrames > maxFrames) {
+    const k = maxFrames / totalFrames;
+    timeline.forEach(seg => { seg.frames = Math.max(1, Math.round(seg.frames * k)); });
+    totalFrames = timeline.reduce((s, seg) => s + seg.frames, 0);
+  }
+  const plannedDur = totalFrames / FPS;
+
+  onProgress("Composing soundtrack…", 24);
+  const musicBlob = await generateMoodMusic(mood, plannedDur + 0.5);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D not available");
+  renderSegmentFrame(ctx, timeline[0], 0, headline, accent, style);
+
+  const videoStream = canvas.captureStream(FPS);
+  const audio = await buildAudioTrack(musicBlob, plannedDur);
+  const stream = new MediaStream([...videoStream.getVideoTracks(), audio.track]);
+  const mimeType = pickMime();
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000 });
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+  const stopped = new Promise<Blob>((resolve, reject) => {
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+    recorder.onerror = (ev) => reject(new Error(`Recorder error: ${(ev as ErrorEvent).message ?? "unknown"}`));
+  });
+
+  onProgress("Rendering AI-edited reel…", 28);
+  recorder.start(250);
+  audio.start();
+  loadedScenes.forEach(({ slide }) => {
+    if (slide.kind === "video") { try { void slide.el.play(); } catch { /* */ } }
+  });
+
+  const STATUS: Record<NarrativePosition, string> = {
+    hook: "Rendering opening hook…",
+    build: "Rendering build scene…",
+    climax: "Rendering key moment…",
+    close: "Rendering closing sequence…",
+  };
+
+  const frameMs = 1000 / FPS;
+  const t0 = performance.now();
+  let globalFrame = 0;
+  for (let segIdx = 0; segIdx < timeline.length; segIdx++) {
+    const seg = timeline[segIdx];
+    if (seg.kind === "plan-scene") onProgress(STATUS[seg.position], Math.min(93, 28 + Math.round((globalFrame / totalFrames) * 65)));
+    for (let f = 0; f < seg.frames; f++) {
+      renderSegmentFrame(ctx, seg, f, headline, accent, style);
+      const targetMs = (globalFrame + 1) * frameMs;
+      const wait = targetMs - (performance.now() - t0);
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      globalFrame++;
+      if (globalFrame % FPS === 0) {
+        onProgress(`Rendering ${Math.round((globalFrame / totalFrames) * 100)}%…`,
+          Math.min(93, 28 + Math.round((globalFrame / totalFrames) * 65)));
+      }
+    }
+  }
+
+  await new Promise(r => setTimeout(r, 500));
+  onProgress("Finalizing…", 96);
+  recorder.stop();
+  const blob = await stopped;
+  audio.stop();
+  loadedScenes.forEach(({ slide }) => { if (slide.kind === "video") { try { slide.el.pause(); } catch { /* */ } } });
+  onProgress("Done", 100);
+  return { blob, durationSec: plannedDur };
+}
+
 // ─── main ──────────────────────────────────────────────────────────────────
 export async function generateReel(
   input: ReelInput,
   onProgress: ReelProgress,
 ): Promise<{ blob: Blob; durationSec: number }> {
+  if (input.editPlan && input.editPlan.scenes.length > 0) {
+    return generatePlannedReel(input, input.editPlan, onProgress);
+  }
   const { slides, captions, headline, mood, platform, secondsPerSlide, brandColor } = input;
   if (!slides || slides.length === 0) throw new Error("No media selected");
+
   if (typeof MediaRecorder === "undefined") {
     throw new Error("Your browser does not support MediaRecorder. Try Chrome, Edge or Firefox.");
   }
