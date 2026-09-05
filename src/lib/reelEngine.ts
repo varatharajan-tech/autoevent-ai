@@ -8,6 +8,7 @@
 // AudioContext from generateMoodMusic().
 
 import { generateMoodMusic, BPM_BY_MOOD, type Mood } from "./reelMusic";
+import type { ReelEditPlan, NarrativePosition, TransitionType } from "./reelEditPlanner";
 
 export type ReelPlatform = "instagram" | "youtube" | "facebook" | "twitter";
 
@@ -28,7 +29,13 @@ export type ReelInput = {
   platform: ReelPlatform;
   secondsPerSlide: number;
   brandColor?: string;
+  /** When present, the reel is cut from this AI edit plan instead of the flat slide list. */
+  editPlan?: ReelEditPlan | null;
+  /** Event name shown on the closing card (defaults to headline). */
+  eventName?: string;
 };
+
+
 
 export type ReelProgress = (msg: string, pct: number) => void;
 
@@ -380,7 +387,14 @@ type Segment =
   | { kind: "fade-in"; frames: number }
   | { kind: "zoom-burst"; slide: LoadedSlide; frames: number }
   | { kind: "closing"; slide: LoadedSlide; frames: number;
-      eventName: string; brandColor: string };
+      eventName: string; brandColor: string }
+  // ─── AI-planned segments (Drawback 3) ───────────────────────────────────
+  | { kind: "plan-scene"; slide: LoadedSlide; frames: number;
+      position: NarrativePosition; subtitle: string | null; showSubtitle: boolean;
+      sceneIdx: number; totalScenes: number; eventName: string }
+  | { kind: "clean-cut"; frames: number }
+  | { kind: "dramatic-fade"; frames: number }
+  | { kind: "smooth-slide"; slide: LoadedSlide; frames: number };
 
 function ensureVideoPlaying(s: LoadedSlide) {
   if (s.kind !== "video") return;
@@ -390,6 +404,141 @@ function ensureVideoPlaying(s: LoadedSlide) {
     try { s.el.currentTime = 0; void s.el.play(); } catch { /* */ }
   }
 }
+
+// ─── AI edit-plan renderers (Drawback 3) ───────────────────────────────────
+
+/** Key-moment pill subtitle: slides up, holds, fades out. */
+function drawAnimatedSubtitle(
+  ctx: CanvasRenderingContext2D, text: string | null, progress: number, accent: string,
+) {
+  if (!text || !text.trim()) return;
+  let alpha = 1;
+  if (progress < 0.2)       alpha = easeOutExpo(progress / 0.2);
+  else if (progress > 0.85) alpha = 1 - easeInExpo((progress - 0.85) / 0.15);
+  if (alpha <= 0.02) return;
+  const slideY = progress < 0.2 ? (1 - easeOutExpo(progress / 0.2)) * 40 : 0;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.font = "bold 34px Inter, Arial, sans-serif";
+
+  let display = text.trim();
+  const maxTextW = W - 200;
+  while (ctx.measureText(display).width > maxTextW && display.length > 10) {
+    display = display.slice(0, -4) + "…";
+  }
+  const pillW = Math.min(ctx.measureText(display).width + 56, W - 80);
+  const pillH = 58;
+  const pillX = (W - pillW) / 2;
+  const pillY = 1700 + slideY;
+  const r = pillH / 2;
+
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.beginPath();
+  ctx.moveTo(pillX + r, pillY);
+  ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + pillH, r);
+  ctx.arcTo(pillX + pillW, pillY + pillH, pillX, pillY + pillH, r);
+  ctx.arcTo(pillX, pillY + pillH, pillX, pillY, r);
+  ctx.arcTo(pillX, pillY, pillX + pillW, pillY, r);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(pillX + 10, pillY + 10, 4, pillH - 20);
+
+  ctx.fillStyle = "#FFFFFF";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 8;
+  ctx.fillText(display, W / 2, pillY + pillH / 2);
+  ctx.restore();
+}
+
+const BUILD_PANS = [
+  { fx: -20, tx: 20,  fy: -10, ty: 10,  fs: 1.05, ts: 1.18 },
+  { fx: 20,  tx: -20, fy: 10,  ty: -10, fs: 1.18, ts: 1.05 },
+  { fx: 0,   tx: 0,   fy: -25, ty: 0,   fs: 1.08, ts: 1.20 },
+];
+
+function renderPlanScene(
+  ctx: CanvasRenderingContext2D,
+  seg: Extract<Segment, { kind: "plan-scene" }>,
+  t: number, headline: string, accent: string,
+) {
+  if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+  const s = seg.slide;
+
+  if (seg.position === "hook") {
+    // Fast zoom reveal — scroll-stopping.
+    const scale = 1.35 - easeOutExpo(t) * 0.35;
+    drawScaledAround(ctx, s.el, s.srcW, s.srcH, scale, 0, 0);
+    drawColorGrade(ctx, "cinematic");
+    drawVignette(ctx, 0.65);
+    drawTopGradient(ctx); drawBottomGradient(ctx);
+    drawCinematicBars(ctx, Math.min(t * 4, 1));
+    if (t < 0.08) { ctx.fillStyle = `rgba(0,0,0,${1 - t / 0.08})`; ctx.fillRect(0, 0, W, H); }
+    if (t > 0.4) drawBrandBadge(ctx, headline, (t - 0.4) / 0.6, accent);
+    return;
+  }
+
+  if (seg.position === "climax") {
+    const scale = 1.0 + t * 0.08;
+    drawScaledAround(ctx, s.el, s.srcW, s.srcH, scale, 0, 0);
+    drawColorGrade(ctx, "luxury");
+    drawVignette(ctx, 0.55);
+    drawTopGradient(ctx); drawBottomGradient(ctx);
+    drawCinematicBars(ctx, 1);
+    drawBrandBadge(ctx, headline, 1, accent);
+    drawGlow(ctx, W / 2, 1800, 400, "123,47,190", 0.15 + Math.sin(t * Math.PI) * 0.1);
+    if (seg.showSubtitle) drawAnimatedSubtitle(ctx, seg.subtitle, t, accent);
+    return;
+  }
+
+  if (seg.position === "close") {
+    const scale = 1.12 - t * 0.08;
+    drawScaledAround(ctx, s.el, s.srcW, s.srcH, scale, 0, 0);
+    drawColorGrade(ctx, "luxury");
+    drawVignette(ctx, 0.70);
+    drawTopGradient(ctx); drawBottomGradient(ctx);
+    drawCinematicBars(ctx, 1);
+    if (t > 0.3) {
+      const bt = Math.min((t - 0.3) / 0.4, 1);
+      const slideUp = (1 - easeOutExpo(bt)) * 50;
+      ctx.save();
+      ctx.globalAlpha = bt;
+      ctx.fillStyle = "#FFD60A";
+      ctx.font = 'bold 64px Inter, "Arial Black", Arial, sans-serif';
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 20;
+      ctx.fillText(headline.toUpperCase(), W / 2, H / 2 - 40 + slideUp);
+      ctx.restore();
+    }
+    if (t > 0.5) {
+      const et = Math.min((t - 0.5) / 0.35, 1);
+      ctx.save();
+      ctx.globalAlpha = et * 0.85;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "32px Inter, Arial, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(seg.eventName, W / 2, H / 2 + 30);
+      ctx.restore();
+    }
+    drawGlow(ctx, W / 2, 1750, 500, "123,47,190", 0.25 * Math.min(t * 2, 1));
+    return;
+  }
+
+  // BUILD
+  const d = BUILD_PANS[seg.sceneIdx % BUILD_PANS.length];
+  const k = easeInOutCubic(t);
+  drawScaledAround(ctx, s.el, s.srcW, s.srcH,
+    lerp(d.fs, d.ts, k), lerp(d.fx, d.tx, k), lerp(d.fy, d.ty, k));
+  drawColorGrade(ctx, "cinematic");
+  drawVignette(ctx, 0.50);
+  drawTopGradient(ctx); drawBottomGradient(ctx);
+  drawCinematicBars(ctx, 1);
+  drawBrandBadge(ctx, headline, 1, accent);
+  drawProgressBar(ctx, seg.sceneIdx + 1, seg.totalScenes, t, accent);
+  if (seg.showSubtitle) drawAnimatedSubtitle(ctx, seg.subtitle, t, accent);
+}
+
 
 function renderSegmentFrame(
   ctx: CanvasRenderingContext2D, seg: Segment, f: number,
@@ -496,7 +645,180 @@ function renderSegmentFrame(
       }
       return;
     }
+    case "plan-scene": {
+      renderPlanScene(ctx, seg, t, headline, accent);
+      return;
+    }
+    case "clean-cut": {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "dramatic-fade": {
+      const a = easeInOutCubic(t);
+      ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = `rgba(123,47,190,${a * 0.15})`; ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "smooth-slide": {
+      if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+      const k = easeInOutCubic(t);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+      ctx.save();
+      ctx.translate(W - k * W, 0);
+      drawCover(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH, 1, 0, 0);
+      ctx.restore();
+      drawColorGrade(ctx, "cinematic");
+      drawVignette(ctx, 0.5);
+      drawCinematicBars(ctx, 1);
+      return;
+    }
   }
+}
+
+// ─── AI-planned reel (Drawback 3) ──────────────────────────────────────────
+async function generatePlannedReel(
+  input: ReelInput,
+  plan: ReelEditPlan,
+  onProgress: ReelProgress,
+): Promise<{ blob: Blob; durationSec: number }> {
+  const { headline, mood, platform, brandColor } = input;
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("Your browser does not support MediaRecorder. Try Chrome, Edge or Firefox.");
+  }
+  const platMeta = REEL_PLATFORMS.find(p => p.id === platform)!;
+  const accent = brandColor && /^#[0-9a-fA-F]{3,8}$/.test(brandColor) ? brandColor : "#7B2FBE";
+  const style = styleForMood(mood);
+  const eventName = input.eventName || headline;
+
+  // Load the media for each planned scene (fresh signed URLs come from the caller).
+  onProgress("Loading media…", 4);
+  const loadedScenes: { scene: ReelEditPlan["scenes"][number]; slide: LoadedSlide }[] = [];
+  for (let i = 0; i < plan.scenes.length; i++) {
+    const sc = plan.scenes[i];
+    try {
+      if (sc.asset.kind === "video") {
+        const v = await loadVideo(sc.asset.signedUrl);
+        loadedScenes.push({ scene: sc, slide: { kind: "video", el: v, srcW: v.videoWidth || W, srcH: v.videoHeight || H } });
+      } else {
+        const img = await loadImage(sc.asset.signedUrl);
+        loadedScenes.push({ scene: sc, slide: { kind: "image", el: img, srcW: img.width, srcH: img.height } });
+      }
+    } catch (e) { console.warn("[reelEngine] skipping planned scene", sc.asset.id, e); }
+    onProgress(`Loading ${i + 1}/${plan.scenes.length}`, 4 + Math.round(((i + 1) / plan.scenes.length) * 18));
+  }
+  if (loadedScenes.length === 0) throw new Error("Could not load any media (CORS or network).");
+
+  const TRANS_FRAMES: Record<TransitionType, number> = {
+    flash: Math.round(0.2 * FPS),
+    zoom_burst: Math.round(0.3 * FPS),
+    cinematic_fade: Math.round(0.4 * FPS),
+    smooth_slide: Math.round(0.35 * FPS),
+    clean_cut: Math.round(0.1 * FPS),
+    dramatic_fade: Math.round(0.7 * FPS),
+  };
+
+  const timeline: Segment[] = [];
+  loadedScenes.forEach((entry, i) => {
+    const { scene, slide } = entry;
+    timeline.push({
+      kind: "plan-scene", slide,
+      frames: Math.max(1, Math.round(scene.duration * FPS)),
+      position: scene.position,
+      subtitle: scene.subtitleText,
+      showSubtitle: scene.showSubtitle,
+      sceneIdx: i,
+      totalScenes: loadedScenes.length,
+      eventName,
+    });
+    const next = loadedScenes[i + 1];
+    if (!next) return;
+    const frames = TRANS_FRAMES[scene.transition] ?? TRANS_FRAMES.cinematic_fade;
+    switch (scene.transition) {
+      case "flash":       timeline.push({ kind: "flash", frames }); break;
+      case "zoom_burst":  timeline.push({ kind: "zoom-burst", slide: next.slide, frames }); break;
+      case "smooth_slide":timeline.push({ kind: "smooth-slide", slide: next.slide, frames }); break;
+      case "clean_cut":   timeline.push({ kind: "clean-cut", frames }); break;
+      case "dramatic_fade": timeline.push({ kind: "dramatic-fade", frames }); break;
+      case "cinematic_fade":
+      default:
+        timeline.push({ kind: "fade-out", frames: Math.round(frames / 2) });
+        timeline.push({ kind: "fade-in",  frames: Math.round(frames / 2) });
+    }
+  });
+  // Closing fade to black
+  timeline.push({ kind: "dramatic-fade", frames: Math.round(0.8 * FPS) });
+
+  let totalFrames = timeline.reduce((s, seg) => s + seg.frames, 0);
+  const maxFrames = Math.floor(platMeta.maxDur * FPS);
+  if (totalFrames > maxFrames) {
+    const k = maxFrames / totalFrames;
+    timeline.forEach(seg => { seg.frames = Math.max(1, Math.round(seg.frames * k)); });
+    totalFrames = timeline.reduce((s, seg) => s + seg.frames, 0);
+  }
+  const plannedDur = totalFrames / FPS;
+
+  onProgress("Composing soundtrack…", 24);
+  const musicBlob = await generateMoodMusic(mood, plannedDur + 0.5);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D not available");
+  renderSegmentFrame(ctx, timeline[0], 0, headline, accent, style);
+
+  const videoStream = canvas.captureStream(FPS);
+  const audio = await buildAudioTrack(musicBlob, plannedDur);
+  const stream = new MediaStream([...videoStream.getVideoTracks(), audio.track]);
+  const mimeType = pickMime();
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000 });
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+  const stopped = new Promise<Blob>((resolve, reject) => {
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+    recorder.onerror = (ev) => reject(new Error(`Recorder error: ${(ev as ErrorEvent).message ?? "unknown"}`));
+  });
+
+  onProgress("Rendering AI-edited reel…", 28);
+  recorder.start(250);
+  audio.start();
+  loadedScenes.forEach(({ slide }) => {
+    if (slide.kind === "video") { try { void slide.el.play(); } catch { /* */ } }
+  });
+
+  const STATUS: Record<NarrativePosition, string> = {
+    hook: "Rendering opening hook…",
+    build: "Rendering build scene…",
+    climax: "Rendering key moment…",
+    close: "Rendering closing sequence…",
+  };
+
+  const frameMs = 1000 / FPS;
+  const t0 = performance.now();
+  let globalFrame = 0;
+  for (let segIdx = 0; segIdx < timeline.length; segIdx++) {
+    const seg = timeline[segIdx];
+    if (seg.kind === "plan-scene") onProgress(STATUS[seg.position], Math.min(93, 28 + Math.round((globalFrame / totalFrames) * 65)));
+    for (let f = 0; f < seg.frames; f++) {
+      renderSegmentFrame(ctx, seg, f, headline, accent, style);
+      const targetMs = (globalFrame + 1) * frameMs;
+      const wait = targetMs - (performance.now() - t0);
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      globalFrame++;
+      if (globalFrame % FPS === 0) {
+        onProgress(`Rendering ${Math.round((globalFrame / totalFrames) * 100)}%…`,
+          Math.min(93, 28 + Math.round((globalFrame / totalFrames) * 65)));
+      }
+    }
+  }
+
+  await new Promise(r => setTimeout(r, 500));
+  onProgress("Finalizing…", 96);
+  recorder.stop();
+  const blob = await stopped;
+  audio.stop();
+  loadedScenes.forEach(({ slide }) => { if (slide.kind === "video") { try { slide.el.pause(); } catch { /* */ } } });
+  onProgress("Done", 100);
+  return { blob, durationSec: plannedDur };
 }
 
 // ─── main ──────────────────────────────────────────────────────────────────
@@ -504,8 +826,12 @@ export async function generateReel(
   input: ReelInput,
   onProgress: ReelProgress,
 ): Promise<{ blob: Blob; durationSec: number }> {
+  if (input.editPlan && input.editPlan.scenes.length > 0) {
+    return generatePlannedReel(input, input.editPlan, onProgress);
+  }
   const { slides, captions, headline, mood, platform, secondsPerSlide, brandColor } = input;
   if (!slides || slides.length === 0) throw new Error("No media selected");
+
   if (typeof MediaRecorder === "undefined") {
     throw new Error("Your browser does not support MediaRecorder. Try Chrome, Edge or Firefox.");
   }
