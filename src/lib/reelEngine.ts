@@ -645,6 +645,33 @@ function renderSegmentFrame(
       }
       return;
     }
+    case "plan-scene": {
+      renderPlanScene(ctx, seg, t, headline, accent);
+      return;
+    }
+    case "clean-cut": {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "dramatic-fade": {
+      const a = easeInOutCubic(t);
+      ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = `rgba(123,47,190,${a * 0.15})`; ctx.fillRect(0, 0, W, H);
+      return;
+    }
+    case "smooth-slide": {
+      if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+      const k = easeInOutCubic(t);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+      ctx.save();
+      ctx.translate(W - k * W, 0);
+      drawCover(ctx, seg.slide.el, seg.slide.srcW, seg.slide.srcH, 1, 0, 0);
+      ctx.restore();
+      drawColorGrade(ctx, "cinematic");
+      drawVignette(ctx, 0.5);
+      drawCinematicBars(ctx, 1);
+      return;
+    }
   }
 }
 
