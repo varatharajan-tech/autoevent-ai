@@ -8,6 +8,7 @@
 // AudioContext from generateMoodMusic().
 
 import { generateMoodMusic, BPM_BY_MOOD, type Mood } from "./reelMusic";
+import type { ReelEditPlan, NarrativePosition, TransitionType } from "./reelEditPlanner";
 
 export type ReelPlatform = "instagram" | "youtube" | "facebook" | "twitter";
 
@@ -28,7 +29,13 @@ export type ReelInput = {
   platform: ReelPlatform;
   secondsPerSlide: number;
   brandColor?: string;
+  /** When present, the reel is cut from this AI edit plan instead of the flat slide list. */
+  editPlan?: ReelEditPlan | null;
+  /** Event name shown on the closing card (defaults to headline). */
+  eventName?: string;
 };
+
+
 
 export type ReelProgress = (msg: string, pct: number) => void;
 
