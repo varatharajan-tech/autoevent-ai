@@ -405,6 +405,141 @@ function ensureVideoPlaying(s: LoadedSlide) {
   }
 }
 
+// ─── AI edit-plan renderers (Drawback 3) ───────────────────────────────────
+
+/** Key-moment pill subtitle: slides up, holds, fades out. */
+function drawAnimatedSubtitle(
+  ctx: CanvasRenderingContext2D, text: string | null, progress: number, accent: string,
+) {
+  if (!text || !text.trim()) return;
+  let alpha = 1;
+  if (progress < 0.2)       alpha = easeOutExpo(progress / 0.2);
+  else if (progress > 0.85) alpha = 1 - easeInExpo((progress - 0.85) / 0.15);
+  if (alpha <= 0.02) return;
+  const slideY = progress < 0.2 ? (1 - easeOutExpo(progress / 0.2)) * 40 : 0;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.font = "bold 34px Inter, Arial, sans-serif";
+
+  let display = text.trim();
+  const maxTextW = W - 200;
+  while (ctx.measureText(display).width > maxTextW && display.length > 10) {
+    display = display.slice(0, -4) + "…";
+  }
+  const pillW = Math.min(ctx.measureText(display).width + 56, W - 80);
+  const pillH = 58;
+  const pillX = (W - pillW) / 2;
+  const pillY = 1700 + slideY;
+  const r = pillH / 2;
+
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.beginPath();
+  ctx.moveTo(pillX + r, pillY);
+  ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + pillH, r);
+  ctx.arcTo(pillX + pillW, pillY + pillH, pillX, pillY + pillH, r);
+  ctx.arcTo(pillX, pillY + pillH, pillX, pillY, r);
+  ctx.arcTo(pillX, pillY, pillX + pillW, pillY, r);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(pillX + 10, pillY + 10, 4, pillH - 20);
+
+  ctx.fillStyle = "#FFFFFF";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 8;
+  ctx.fillText(display, W / 2, pillY + pillH / 2);
+  ctx.restore();
+}
+
+const BUILD_PANS = [
+  { fx: -20, tx: 20,  fy: -10, ty: 10,  fs: 1.05, ts: 1.18 },
+  { fx: 20,  tx: -20, fy: 10,  ty: -10, fs: 1.18, ts: 1.05 },
+  { fx: 0,   tx: 0,   fy: -25, ty: 0,   fs: 1.08, ts: 1.20 },
+];
+
+function renderPlanScene(
+  ctx: CanvasRenderingContext2D,
+  seg: Extract<Segment, { kind: "plan-scene" }>,
+  t: number, headline: string, accent: string,
+) {
+  if (seg.slide.kind === "video") ensureVideoPlaying(seg.slide);
+  const s = seg.slide;
+
+  if (seg.position === "hook") {
+    // Fast zoom reveal — scroll-stopping.
+    const scale = 1.35 - easeOutExpo(t) * 0.35;
+    drawScaledAround(ctx, s.el, s.srcW, s.srcH, scale, 0, 0);
+    drawColorGrade(ctx, "cinematic");
+    drawVignette(ctx, 0.65);
+    drawTopGradient(ctx); drawBottomGradient(ctx);
+    drawCinematicBars(ctx, Math.min(t * 4, 1));
+    if (t < 0.08) { ctx.fillStyle = `rgba(0,0,0,${1 - t / 0.08})`; ctx.fillRect(0, 0, W, H); }
+    if (t > 0.4) drawBrandBadge(ctx, headline, (t - 0.4) / 0.6, accent);
+    return;
+  }
+
+  if (seg.position === "climax") {
+    const scale = 1.0 + t * 0.08;
+    drawScaledAround(ctx, s.el, s.srcW, s.srcH, scale, 0, 0);
+    drawColorGrade(ctx, "luxury");
+    drawVignette(ctx, 0.55);
+    drawTopGradient(ctx); drawBottomGradient(ctx);
+    drawCinematicBars(ctx, 1);
+    drawBrandBadge(ctx, headline, 1, accent);
+    drawGlow(ctx, W / 2, 1800, 400, "123,47,190", 0.15 + Math.sin(t * Math.PI) * 0.1);
+    if (seg.showSubtitle) drawAnimatedSubtitle(ctx, seg.subtitle, t, accent);
+    return;
+  }
+
+  if (seg.position === "close") {
+    const scale = 1.12 - t * 0.08;
+    drawScaledAround(ctx, s.el, s.srcW, s.srcH, scale, 0, 0);
+    drawColorGrade(ctx, "luxury");
+    drawVignette(ctx, 0.70);
+    drawTopGradient(ctx); drawBottomGradient(ctx);
+    drawCinematicBars(ctx, 1);
+    if (t > 0.3) {
+      const bt = Math.min((t - 0.3) / 0.4, 1);
+      const slideUp = (1 - easeOutExpo(bt)) * 50;
+      ctx.save();
+      ctx.globalAlpha = bt;
+      ctx.fillStyle = "#FFD60A";
+      ctx.font = 'bold 64px Inter, "Arial Black", Arial, sans-serif';
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 20;
+      ctx.fillText(headline.toUpperCase(), W / 2, H / 2 - 40 + slideUp);
+      ctx.restore();
+    }
+    if (t > 0.5) {
+      const et = Math.min((t - 0.5) / 0.35, 1);
+      ctx.save();
+      ctx.globalAlpha = et * 0.85;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "32px Inter, Arial, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(seg.eventName, W / 2, H / 2 + 30);
+      ctx.restore();
+    }
+    drawGlow(ctx, W / 2, 1750, 500, "123,47,190", 0.25 * Math.min(t * 2, 1));
+    return;
+  }
+
+  // BUILD
+  const d = BUILD_PANS[seg.sceneIdx % BUILD_PANS.length];
+  const k = easeInOutCubic(t);
+  drawScaledAround(ctx, s.el, s.srcW, s.srcH,
+    lerp(d.fs, d.ts, k), lerp(d.fx, d.tx, k), lerp(d.fy, d.ty, k));
+  drawColorGrade(ctx, "cinematic");
+  drawVignette(ctx, 0.50);
+  drawTopGradient(ctx); drawBottomGradient(ctx);
+  drawCinematicBars(ctx, 1);
+  drawBrandBadge(ctx, headline, 1, accent);
+  drawProgressBar(ctx, seg.sceneIdx + 1, seg.totalScenes, t, accent);
+  if (seg.showSubtitle) drawAnimatedSubtitle(ctx, seg.subtitle, t, accent);
+}
+
+
 function renderSegmentFrame(
   ctx: CanvasRenderingContext2D, seg: Segment, f: number,
   headline: string, accent: string, style: EditStyle,
