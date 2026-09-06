@@ -88,6 +88,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
   const [reelUrl, setReelUrl] = useState<string | null>(null);
   const [reelDur, setReelDur] = useState(0);
   const [history, setHistory] = useState<ReelRow[]>([]);
+  const [aiEdit, setAiEdit] = useState(true);
+  const [lastPlan, setLastPlan] = useState<ReelEditPlan | null>(null);
   const urlRef = useRef<string | null>(null);
 
   const loadHistory = useCallback(async () => {
