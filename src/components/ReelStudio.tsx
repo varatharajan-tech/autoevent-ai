@@ -393,6 +393,52 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           </details>
         )}
 
+        {/* AI edit toggle + planned story structure */}
+        <div className="mb-6 rounded-lg border border-border/60 bg-background p-4">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-sm font-medium">AI storytelling edit</div>
+              <p className="text-xs text-muted-foreground">
+                {visionReady
+                  ? "Orders your photos into a story, varies each hold time and picks a transition per shot."
+                  : "No photo analysis yet for these picks — the reel will use your order and a flat pace."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAiEdit(v => !v)}
+              aria-pressed={aiEdit}
+              className={`text-xs px-3 py-1.5 rounded-full border transition shrink-0 ${aiEdit ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}
+            >
+              {aiEdit ? "On" : "Off"}
+            </button>
+          </div>
+
+          {aiEdit && previewPlan && previewPlan.scenes.length > 0 && (
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                Planned story structure · {previewPlan.totalDuration}s
+              </div>
+              <ol className="space-y-1.5">
+                {previewPlan.scenes.map(s => (
+                  <li key={s.asset.id} className="flex items-center gap-2 text-xs">
+                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
+                      {POSITION_LABEL[s.position] ?? s.position}
+                    </span>
+                    <span className="truncate flex-1 text-foreground">
+                      {s.asset.ai_scene_label || s.subtitleText || "Photo"}
+                    </span>
+                    <span className="font-mono text-muted-foreground shrink-0">{s.duration.toFixed(1)}s</span>
+                    <span className="text-muted-foreground shrink-0 hidden sm:inline">
+                      {TRANSITION_LABEL[s.transition] ?? s.transition}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+
         {/* Action */}
         <div className="flex flex-wrap gap-3 items-center">
           <Button onClick={onGenerate} disabled={busy || selected.length < 2} size="lg">
