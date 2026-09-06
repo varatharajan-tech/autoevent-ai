@@ -462,13 +462,56 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
 
       {reelUrl && (
         <div className="bg-card border border-border/60 rounded-xl p-6 shadow-soft">
-          <h4 className="font-display text-lg mb-3">Preview</h4>
-          <div className="max-w-xs mx-auto">
-            <video src={reelUrl} controls playsInline className="w-full aspect-[9/16] rounded-lg bg-black" />
-            <p className="text-xs text-muted-foreground text-center mt-2 font-mono">
-              {reelDur.toFixed(0)}s · 1080×1920 · H.264 + AAC
-            </p>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h4 className="font-display text-lg">Preview</h4>
+            <div className="flex rounded-full border border-border overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setPhonePreview(true)}
+                aria-pressed={phonePreview}
+                className={`px-3 py-1.5 transition ${phonePreview ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+              >
+                Phone
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhonePreview(false)}
+                aria-pressed={!phonePreview}
+                className={`px-3 py-1.5 transition ${!phonePreview ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+              >
+                Full
+              </button>
+            </div>
           </div>
+
+          {phonePreview ? (
+            <div className="mx-auto w-[260px]">
+              {/* Phone mock-up so you can see the reel the way it looks on a phone */}
+              <div className="relative rounded-[2.25rem] border-[10px] border-foreground/85 bg-foreground/85 shadow-xl">
+                <div className="absolute left-1/2 -translate-x-1/2 top-1.5 h-4 w-20 rounded-full bg-background/20 z-10" />
+                <video
+                  src={reelUrl}
+                  controls
+                  playsInline
+                  className="w-full aspect-[9/16] rounded-[1.5rem] bg-black object-cover"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground text-center mt-3 font-mono">
+                {reelDur.toFixed(0)}s · 1080×1920 · H.264 + AAC
+              </p>
+              <p className="text-[11px] text-muted-foreground text-center mt-1">
+                This is exactly how it fills a phone screen on Reels, TikTok and Shorts.
+              </p>
+            </div>
+          ) : (
+            <div className="max-w-xs mx-auto">
+              <video src={reelUrl} controls playsInline className="w-full aspect-[9/16] rounded-lg bg-black" />
+              <p className="text-xs text-muted-foreground text-center mt-2 font-mono">
+                {reelDur.toFixed(0)}s · 1080×1920 · H.264 + AAC
+              </p>
+            </div>
+          )}
+
 
           {lastPlan && lastPlan.scenes.length > 0 && (
             <div className="mt-5 border-t border-border/60 pt-4">
