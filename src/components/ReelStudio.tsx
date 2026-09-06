@@ -128,6 +128,52 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
     return p?.caption ?? "";
   }, [posts, platform]);
 
+  /** key_moment text lives on generated_posts and joins back by source_asset_id. */
+  const keyMomentByAsset = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of posts) {
+      if (p.source_asset_id && p.key_moment && !map[p.source_asset_id]) {
+        map[p.source_asset_id] = p.key_moment;
+      }
+    }
+    return map;
+  }, [posts]);
+
+  const toVisionAsset = useCallback((a: Asset, signedUrl: string): AssetWithVisionData => ({
+    id: a.id,
+    storage_path: a.storage_path ?? "",
+    signedUrl,
+    kind: a.kind === "video" ? "video" : "image",
+    ai_score: a.ai_score ?? null,
+    emotional_energy: a.emotional_energy ?? null,
+    storytelling_value: a.storytelling_value ?? null,
+    people_engagement: a.people_engagement ?? null,
+    composition_quality: a.composition_quality ?? null,
+    brand_moment: a.brand_moment ?? null,
+    ai_scene_label: a.ai_scene_label ?? null,
+    key_moment: keyMomentByAsset[a.id] ?? null,
+    scoring_method: a.scoring_method ?? null,
+  }), [keyMomentByAsset]);
+
+  const selectedAssets = useMemo(
+    () => selected.map(id => eligible.find(a => a.id === id)).filter((a): a is Asset => !!a),
+    [selected, eligible],
+  );
+
+  /** Preview plan (page URLs); the render re-plans with freshly minted links. */
+  const previewPlan = useMemo(() => {
+    if (!aiEdit || selectedAssets.length < 2) return null;
+    return buildNarrativeArc(
+      selectedAssets.map(a => toVisionAsset(a, a.public_url ?? "")),
+      eventName, eventName, mood,
+    );
+  }, [aiEdit, selectedAssets, toVisionAsset, eventName, mood]);
+
+  const visionReady = useMemo(
+    () => hasVisionData(selectedAssets.map(a => toVisionAsset(a, ""))),
+    [selectedAssets, toVisionAsset],
+  );
+
   async function onGenerate() {
     if (selected.length < 2) { toast.error("Select at least 2 clips/photos"); return; }
     if (selected.length > 12) { toast.error("Use up to 12 items for a snappy reel"); return; }
