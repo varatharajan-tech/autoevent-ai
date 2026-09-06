@@ -469,6 +469,30 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
               {reelDur.toFixed(0)}s · 1080×1920 · H.264 + AAC
             </p>
           </div>
+
+          {lastPlan && lastPlan.scenes.length > 0 && (
+            <div className="mt-5 border-t border-border/60 pt-4">
+              <div className="text-sm font-medium mb-2">How AI edited this reel</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <div className="text-muted-foreground">Opens on</div>
+                  <div className="truncate">{lastPlan.hookScene?.asset.ai_scene_label ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Peak moment</div>
+                  <div className="truncate">{lastPlan.climaxScene?.asset.ai_scene_label ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Shots</div>
+                  <div>{lastPlan.scenes.length}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Planned length</div>
+                  <div>{lastPlan.totalDuration}s</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
