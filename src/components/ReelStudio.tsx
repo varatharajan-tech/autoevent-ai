@@ -8,10 +8,30 @@ import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngin
 import { MOODS, type Mood } from "@/lib/reelMusic";
 import { supabase } from "@/integrations/supabase/client";
 import { getSignedUrls } from "@/lib/storage";
+import {
+  buildNarrativeArc,
+  hasVisionData,
+  type AssetWithVisionData,
+  type ReelEditPlan,
+} from "@/lib/reelEditPlanner";
 
 
-type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null; kind?: string | null };
-type Post = { platform: string; caption: string };
+type Asset = {
+  id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean;
+  filename: string | null; kind?: string | null; storage_path?: string | null;
+  ai_score?: number | null; emotional_energy?: number | null; storytelling_value?: number | null;
+  people_engagement?: number | null; composition_quality?: number | null;
+  brand_moment?: boolean | null; ai_scene_label?: string | null; scoring_method?: string | null;
+};
+type Post = { platform: string; caption: string; source_asset_id?: string | null; key_moment?: string | null };
+
+const POSITION_LABEL: Record<string, string> = {
+  hook: "Hook", build: "Build", climax: "Climax", close: "Close",
+};
+const TRANSITION_LABEL: Record<string, string> = {
+  flash: "Flash cut", zoom_burst: "Zoom burst", cinematic_fade: "Cinematic fade",
+  smooth_slide: "Smooth slide", clean_cut: "Clean cut", dramatic_fade: "Dramatic fade",
+};
 type ReelRow = {
   id: string; storage_path: string; public_url: string | null;
   platform: string; mood: string; duration_sec: number; mime_type: string;
@@ -68,6 +88,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
   const [reelUrl, setReelUrl] = useState<string | null>(null);
   const [reelDur, setReelDur] = useState(0);
   const [history, setHistory] = useState<ReelRow[]>([]);
+  const [aiEdit, setAiEdit] = useState(true);
+  const [lastPlan, setLastPlan] = useState<ReelEditPlan | null>(null);
   const urlRef = useRef<string | null>(null);
 
   const loadHistory = useCallback(async () => {
@@ -106,6 +128,52 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
     return p?.caption ?? "";
   }, [posts, platform]);
 
+  /** key_moment text lives on generated_posts and joins back by source_asset_id. */
+  const keyMomentByAsset = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of posts) {
+      if (p.source_asset_id && p.key_moment && !map[p.source_asset_id]) {
+        map[p.source_asset_id] = p.key_moment;
+      }
+    }
+    return map;
+  }, [posts]);
+
+  const toVisionAsset = useCallback((a: Asset, signedUrl: string): AssetWithVisionData => ({
+    id: a.id,
+    storage_path: a.storage_path ?? "",
+    signedUrl,
+    kind: a.kind === "video" ? "video" : "image",
+    ai_score: a.ai_score ?? null,
+    emotional_energy: a.emotional_energy ?? null,
+    storytelling_value: a.storytelling_value ?? null,
+    people_engagement: a.people_engagement ?? null,
+    composition_quality: a.composition_quality ?? null,
+    brand_moment: a.brand_moment ?? null,
+    ai_scene_label: a.ai_scene_label ?? null,
+    key_moment: keyMomentByAsset[a.id] ?? null,
+    scoring_method: a.scoring_method ?? null,
+  }), [keyMomentByAsset]);
+
+  const selectedAssets = useMemo(
+    () => selected.map(id => eligible.find(a => a.id === id)).filter((a): a is Asset => !!a),
+    [selected, eligible],
+  );
+
+  /** Preview plan (page URLs); the render re-plans with freshly minted links. */
+  const previewPlan = useMemo(() => {
+    if (!aiEdit || selectedAssets.length < 2) return null;
+    return buildNarrativeArc(
+      selectedAssets.map(a => toVisionAsset(a, a.public_url ?? "")),
+      eventName, eventName, mood,
+    );
+  }, [aiEdit, selectedAssets, toVisionAsset, eventName, mood]);
+
+  const visionReady = useMemo(
+    () => hasVisionData(selectedAssets.map(a => toVisionAsset(a, ""))),
+    [selectedAssets, toVisionAsset],
+  );
+
   async function onGenerate() {
     if (selected.length < 2) { toast.error("Select at least 2 clips/photos"); return; }
     if (selected.length > 12) { toast.error("Use up to 12 items for a snappy reel"); return; }
@@ -114,11 +182,30 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       const orderedAssets = selected
         .map(id => eligible.find(a => a.id === id))
         .filter((a): a is Asset => !!a && !!a.public_url);
+
+      // Always mint fresh 1-hour links right before rendering — never reuse the page's.
+      setProgressMsg("Preparing media…");
+      const paths = orderedAssets.map(a => a.storage_path || a.public_url || "");
+      const fresh = await getSignedUrls("event-media", paths, 3600);
+      const urlFor = (a: Asset, i: number) =>
+        fresh[paths[i]] ?? a.public_url!;
+
+      let editPlan: ReelEditPlan | null = null;
+      if (aiEdit && orderedAssets.length >= 2) {
+        editPlan = buildNarrativeArc(
+          orderedAssets.map((a, i) => toVisionAsset(a, urlFor(a, i))),
+          eventName, eventName, mood,
+        );
+        setLastPlan(editPlan);
+      } else {
+        setLastPlan(null);
+      }
+
       const captions = splitCaptions(captionSource, orderedAssets.length);
       const { blob, durationSec } = await generateReel(
         {
-          slides: orderedAssets.map(a => ({
-            url: a.public_url!,
+          slides: orderedAssets.map((a, i) => ({
+            url: urlFor(a, i),
             kind: a.kind === "video" ? "video" : "image",
           })),
           captions,
@@ -127,6 +214,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           platform,
           secondsPerSlide: perSlide,
           brandColor,
+          editPlan,
+          eventName,
         },
         (msg, pct) => { setProgressMsg(msg); setProgress(pct); }
       );
@@ -304,6 +393,52 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           </details>
         )}
 
+        {/* AI edit toggle + planned story structure */}
+        <div className="mb-6 rounded-lg border border-border/60 bg-background p-4">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-sm font-medium">AI storytelling edit</div>
+              <p className="text-xs text-muted-foreground">
+                {visionReady
+                  ? "Orders your photos into a story, varies each hold time and picks a transition per shot."
+                  : "No photo analysis yet for these picks — the reel will use your order and a flat pace."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAiEdit(v => !v)}
+              aria-pressed={aiEdit}
+              className={`text-xs px-3 py-1.5 rounded-full border transition shrink-0 ${aiEdit ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}
+            >
+              {aiEdit ? "On" : "Off"}
+            </button>
+          </div>
+
+          {aiEdit && previewPlan && previewPlan.scenes.length > 0 && (
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                Planned story structure · {previewPlan.totalDuration}s
+              </div>
+              <ol className="space-y-1.5">
+                {previewPlan.scenes.map(s => (
+                  <li key={s.asset.id} className="flex items-center gap-2 text-xs">
+                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
+                      {POSITION_LABEL[s.position] ?? s.position}
+                    </span>
+                    <span className="truncate flex-1 text-foreground">
+                      {s.asset.ai_scene_label || s.subtitleText || "Photo"}
+                    </span>
+                    <span className="font-mono text-muted-foreground shrink-0">{s.duration.toFixed(1)}s</span>
+                    <span className="text-muted-foreground shrink-0 hidden sm:inline">
+                      {TRANSITION_LABEL[s.transition] ?? s.transition}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+
         {/* Action */}
         <div className="flex flex-wrap gap-3 items-center">
           <Button onClick={onGenerate} disabled={busy || selected.length < 2} size="lg">
@@ -334,6 +469,30 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
               {reelDur.toFixed(0)}s · 1080×1920 · H.264 + AAC
             </p>
           </div>
+
+          {lastPlan && lastPlan.scenes.length > 0 && (
+            <div className="mt-5 border-t border-border/60 pt-4">
+              <div className="text-sm font-medium mb-2">How AI edited this reel</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <div className="text-muted-foreground">Opens on</div>
+                  <div className="truncate">{lastPlan.hookScene?.asset.ai_scene_label ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Peak moment</div>
+                  <div className="truncate">{lastPlan.climaxScene?.asset.ai_scene_label ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Shots</div>
+                  <div>{lastPlan.scenes.length}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Planned length</div>
+                  <div>{lastPlan.totalDuration}s</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
