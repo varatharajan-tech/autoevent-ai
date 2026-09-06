@@ -182,11 +182,30 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
       const orderedAssets = selected
         .map(id => eligible.find(a => a.id === id))
         .filter((a): a is Asset => !!a && !!a.public_url);
+
+      // Always mint fresh 1-hour links right before rendering — never reuse the page's.
+      setProgressMsg("Preparing media…");
+      const paths = orderedAssets.map(a => a.storage_path || a.public_url || "");
+      const fresh = await getSignedUrls("event-media", paths, 3600);
+      const urlFor = (a: Asset, i: number) =>
+        fresh[paths[i]] ?? a.public_url!;
+
+      let editPlan: ReelEditPlan | null = null;
+      if (aiEdit && orderedAssets.length >= 2) {
+        editPlan = buildNarrativeArc(
+          orderedAssets.map((a, i) => toVisionAsset(a, urlFor(a, i))),
+          eventName, eventName, mood,
+        );
+        setLastPlan(editPlan);
+      } else {
+        setLastPlan(null);
+      }
+
       const captions = splitCaptions(captionSource, orderedAssets.length);
       const { blob, durationSec } = await generateReel(
         {
-          slides: orderedAssets.map(a => ({
-            url: a.public_url!,
+          slides: orderedAssets.map((a, i) => ({
+            url: urlFor(a, i),
             kind: a.kind === "video" ? "video" : "image",
           })),
           captions,
@@ -195,6 +214,8 @@ export function ReelStudio({ eventId, userId, assets, posts, eventName, brandCol
           platform,
           secondsPerSlide: perSlide,
           brandColor,
+          editPlan,
+          eventName,
         },
         (msg, pct) => { setProgressMsg(msg); setProgress(pct); }
       );
