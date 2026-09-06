@@ -8,10 +8,30 @@ import { generateReel, REEL_PLATFORMS, type ReelPlatform } from "@/lib/reelEngin
 import { MOODS, type Mood } from "@/lib/reelMusic";
 import { supabase } from "@/integrations/supabase/client";
 import { getSignedUrls } from "@/lib/storage";
+import {
+  buildNarrativeArc,
+  hasVisionData,
+  type AssetWithVisionData,
+  type ReelEditPlan,
+} from "@/lib/reelEditPlanner";
 
 
-type Asset = { id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean; filename: string | null; kind?: string | null };
-type Post = { platform: string; caption: string };
+type Asset = {
+  id: string; public_url: string | null; ai_summary: string | null; is_top_pick: boolean;
+  filename: string | null; kind?: string | null; storage_path?: string | null;
+  ai_score?: number | null; emotional_energy?: number | null; storytelling_value?: number | null;
+  people_engagement?: number | null; composition_quality?: number | null;
+  brand_moment?: boolean | null; ai_scene_label?: string | null; scoring_method?: string | null;
+};
+type Post = { platform: string; caption: string; source_asset_id?: string | null; key_moment?: string | null };
+
+const POSITION_LABEL: Record<string, string> = {
+  hook: "Hook", build: "Build", climax: "Climax", close: "Close",
+};
+const TRANSITION_LABEL: Record<string, string> = {
+  flash: "Flash cut", zoom_burst: "Zoom burst", cinematic_fade: "Cinematic fade",
+  smooth_slide: "Smooth slide", clean_cut: "Clean cut", dramatic_fade: "Dramatic fade",
+};
 type ReelRow = {
   id: string; storage_path: string; public_url: string | null;
   platform: string; mood: string; duration_sec: number; mime_type: string;
