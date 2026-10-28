@@ -187,6 +187,17 @@ Deno.serve(async (req) => {
     const { data: ev } = await admin.from("events").select("*").eq("id", event_id).eq("user_id", user.id).single();
     if (!ev) return new Response(JSON.stringify({ error: "event not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    // Defense-in-depth: only sign storage paths that live inside the event
+    // owner's own folder, in buckets the pipeline is allowed to touch. RLS now
+    // also enforces this on write; this check covers rows written before the
+    // rule existed and any future admin-side writes.
+    const SIGNABLE_BUCKETS = new Set(["event-media"]);
+    const isSignableAsset = (a: { storage_path?: string | null; storage_bucket?: string | null }) =>
+      SIGNABLE_BUCKETS.has(a.storage_bucket || "event-media") &&
+      typeof a.storage_path === "string" &&
+      a.storage_path.startsWith(`${user.id}/`);
+
+
     await admin.from("events").update({ status: "analyzing" }).eq("id", event_id);
     await log("orchestrator", `Starting agentic pipeline for "${ev.name}"`);
     await log("orchestrator", `Platforms requested: ${requested.join(", ")}`);
@@ -275,8 +286,13 @@ Return ONLY JSON: {"emotional_energy":0,"event_relevance":0,"people_engagement":
         try {
           await log("media", `Scoring photo ${n} of ${assets.length}…`);
           const bucket = (a as any).storage_bucket || "event-media";
+          if (!isSignableAsset(a as any)) {
+            await log("media", `Photo ${n}: skipped — storage path is outside the owner's folder`, "warn");
+            return;
+          }
           const { data: signed, error: sErr } = await admin.storage.from(bucket)
             .createSignedUrl(a.storage_path, 60 * 60);
+
           if (sErr || !signed?.signedUrl) throw new Error(`signed url failed: ${sErr?.message ?? "none"}`);
 
           const resp = await callAI({
@@ -518,8 +534,10 @@ Return ONLY JSON: {"emotional_energy":0,"event_relevance":0,"people_engagement":
       try {
         await log("content", `Analysing photo ${idx} of ${visionTargets.length} with vision AI…`);
         const bucket = (pick as any).storage_bucket || "event-media";
+        if (!isSignableAsset(pick as any)) throw new Error("storage path outside owner folder");
         const { data: signed, error: sErr } = await admin.storage.from(bucket)
           .createSignedUrl(pick.storage_path, 60 * 60);
+
         if (sErr || !signed?.signedUrl) throw new Error(`signed url failed: ${sErr?.message ?? "none"}`);
 
         const vResp = await callAI({
