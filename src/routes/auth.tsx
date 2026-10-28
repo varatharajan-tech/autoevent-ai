@@ -28,6 +28,9 @@ export const Route = createFileRoute("/auth")({
 /** Only same-origin relative paths are allowed as a post-login destination. */
 function safeNext(next: string | undefined): string | null {
   if (!next) return null;
+  // Browsers treat "\" as "/" in URLs, so "/\evil.com" resolves off-site;
+  // also drop control characters that can smuggle scheme parts.
+  if (/[\0-\x1f\x7f]/.test(next) || next.includes("\\")) return null;
   if (!next.startsWith("/") || next.startsWith("//")) return null;
   return next;
 }
